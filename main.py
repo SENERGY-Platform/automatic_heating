@@ -122,7 +122,8 @@ class Operator(OperatorBase):
                 overall_confidence = confidence_by_spreading * confidence_by_daily_appearance
                 
                 confidence_list.append({"stopping_time": timestamp_to_str(pd.Timestamp.combine(current_day, pair_of_boundaries[0]) - INERTIA_BUFFER),
-                                        "overall_confidence": str(overall_confidence)})
+                                        "overall_confidence": str(overall_confidence),
+                                        "timestamp": timestamp_to_str(current_timestamp)})
             
             return confidence_list
 
