@@ -1,0 +1,9 @@
+git+https://github.com/SENERGY-Platform/analytics-operator-lib-python@v1.2.1
+
+pandas<2
+numpy==1.26.4
+kazoo
+scikit-learn == 1.3.0
+statsmodels==0.13.5
+lightgbm==3.3.5
+python-dotenv==1.0.0
