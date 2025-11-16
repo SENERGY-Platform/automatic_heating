@@ -90,6 +90,7 @@ class Operator(OperatorBase):
         current_timestamp = pd.Timestamp(timestamp)
         if self.first_data_time == None:
             self.first_data_time = current_timestamp
+            self.init_phase_handler = InitPhase(self.data_path, self.init_phase_duration, self.first_data_time, self.produce)
         if self.last_timestamp == None:
             self.last_timestamp = current_timestamp
 
