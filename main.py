@@ -96,6 +96,13 @@ class Operator(OperatorBase):
         real_time_data = (pd.Timestamp.now() - current_timestamp < pd.Timedelta(10, "s"))
 
         window_open = bool(data["window_open"])
+
+        if real_time_data:
+            logger.debug(f"{current_timestamp}:  Window open: {window_open}!")
+        else:
+            logger.debug(f"Historic data from: {current_timestamp}:  Window open: {window_open}!")
+
+
         if window_open:
             window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES, default=[])
             window_opening_times.append(current_timestamp)
@@ -124,7 +131,7 @@ class Operator(OperatorBase):
                 confidence_list.append({"stopping_time": timestamp_to_str(pd.Timestamp.combine(current_day, pair_of_boundaries[0]) - INERTIA_BUFFER),
                                         "overall_confidence": str(overall_confidence),
                                         "timestamp": timestamp_to_str(current_timestamp)})
-            
+            logger.debug(f"Results for next day: {confidence_list}")
             return confidence_list
 
 
