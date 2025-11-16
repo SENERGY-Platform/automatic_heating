@@ -1,9 +1,9 @@
 import pandas as pd
 import numpy as np
-import create_clustering
+from .create_clustering import compute_frac_of_day
 
 def compute_second_momentum(list_of_ts:list):
-    list_of_frac = list(map(create_clustering.compute_frac_of_day, list_of_ts))
+    list_of_frac = list(map(compute_frac_of_day, list_of_ts))
     mean = np.mean(list_of_frac)
     non_avg_momentum = 0
     for frac in list_of_frac:
