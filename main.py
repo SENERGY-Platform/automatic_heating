@@ -124,6 +124,7 @@ class Operator(OperatorBase):
         if outcome: return outcome  # init phase cuts of normal analysis
 
         new_day = self.check_for_new_day(self.last_timestamp, current_timestamp)
+        self.last_timestamp = current_day
 
 
         confidence_list = []
