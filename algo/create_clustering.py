@@ -25,7 +25,6 @@ def project_to_unit_circle(ts:pd.Timestamp):
 def compute_clustering(window_opening_times: list):
     # Compute the projection onto the unit circle for all window opening times
     projections_onto_circle = list(map(lambda x: project_to_unit_circle(x), window_opening_times))
-    print(projections_onto_circle)
     projections_onto_circle = np.array(projections_onto_circle)
 
     clustering = DBSCAN(eps=EPSILON, min_samples=2).fit(projections_onto_circle)
