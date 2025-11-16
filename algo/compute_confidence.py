@@ -28,8 +28,8 @@ def check_for_times_during_last_x_days(window_opening_times: list, pair_of_bound
 
     for i in range(x_days):
         for window_opening_time in window_opening_times:
-            if (current_day - (i+1)*pd.Timedelta("d") + delta_min_boundary <= window_opening_time and 
-                window_opening_time <= current_day - (i+1)*pd.Timedelta("d") + delta_max_boundary):
+            if (current_day - (i+1)*pd.Timedelta(1, "d") + delta_min_boundary <= window_opening_time and 
+                window_opening_time <= current_day - (i+1)*pd.Timedelta(1, "d") + delta_max_boundary):
                 nr_days_in_cluster += 1
                 break
 
