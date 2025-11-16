@@ -128,14 +128,15 @@ class Operator(OperatorBase):
 
         confidence_list = []
         if new_day:
-            window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
-            clusters_boundaries = compute_clusters_boundaries(window_opening_times)
+            if real_time_data:
+                self.window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
+            clusters_boundaries = compute_clusters_boundaries(self.window_opening_times)
             current_day = current_timestamp.floor("d")
             for c in clusters_boundaries.keys():
                 pair_of_boundaries = clusters_boundaries[c]
 
-                confidence_by_spreading = compute_confidence_from_spreading(window_opening_times, HIGH_CONFIDENCE_BOUNDARY, LOW_CONFIDENCE_BOUNDARY)
-                confidence_by_daily_appearance = compute_confidence_by_daily_apperance(window_opening_times, pair_of_boundaries, x_days=X_DAYS)
+                confidence_by_spreading = compute_confidence_from_spreading(self.window_opening_times, HIGH_CONFIDENCE_BOUNDARY, LOW_CONFIDENCE_BOUNDARY)
+                confidence_by_daily_appearance = compute_confidence_by_daily_apperance(self.window_opening_times, pair_of_boundaries, x_days=X_DAYS)
 
                 overall_confidence = confidence_by_spreading * confidence_by_daily_appearance
                 
