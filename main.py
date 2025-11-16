@@ -113,7 +113,7 @@ class Operator(OperatorBase):
         if window_open:
             self.window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
             self.window_opening_times.append(current_timestamp)
-            save(self.data_path, WINDOW_OPENING_TIMES_FILE, window_opening_times)
+            save(self.data_path, WINDOW_OPENING_TIMES_FILE, self.window_opening_times)
             # self.window_opening_times is a potentially growing list->it's better to not hold it inside the memory all the time
             del self.window_opening_times 
         elif window_open and not real_time_data:
