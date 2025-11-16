@@ -35,7 +35,7 @@ from algo import compute_clusters_boundaries, compute_confidence_from_spreading,
 
 FIRST_DATA_FILENAME = "first_data_time.pickle"
 LAST_TIMESTAMP_FILE = "last_timestamp.pickle"
-WINDOW_OPENING_TIMES = "window_opening_times.pickle"
+WINDOW_OPENING_TIMES_FILE = "window_opening_times.pickle"
 
 X_DAYS = 7
 HIGH_CONFIDENCE_BOUNDARY = 600 # in seconds, corresponds to 10 minutes
@@ -105,9 +105,9 @@ class Operator(OperatorBase):
 
 
         if window_open:
-            window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES, default=[])
+            window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
             window_opening_times.append(current_timestamp)
-            save(self.data_path, WINDOW_OPENING_TIMES, self.first_data_time)
+            save(self.data_path, WINDOW_OPENING_TIMES_FILE, window_opening_times)
             del window_opening_times # window_opening_times is a potentially growing list->it's better to not hold it inside the memory all the time
         
         outcome = self.check_for_init_phase(current_timestamp)
@@ -118,7 +118,7 @@ class Operator(OperatorBase):
 
         confidence_list = []
         if new_day and real_time_data:
-            window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES, default=[])
+            window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
             clusters_boundaries = compute_clusters_boundaries(window_opening_times)
             current_day = current_timestamp.floor("d")
             for c in clusters_boundaries.keys():
