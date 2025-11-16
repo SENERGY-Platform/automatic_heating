@@ -88,6 +88,11 @@ class Operator(OperatorBase):
 
     def run(self, data: typing.Dict[str, typing.Any], selector: str, device_id, timestamp: datetime.datetime):
         current_timestamp = pd.Timestamp(timestamp)
+        # Discard data, which is too old.
+        if pd.Timestamp.now() - current_timestamp > pd.Timedelta(30, "d"):
+            return
+
+
         if self.first_data_time == None:
             self.first_data_time = current_timestamp
             self.init_phase_handler = InitPhase(self.data_path, self.init_phase_duration, self.first_data_time, self.produce)
