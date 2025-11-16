@@ -136,6 +136,22 @@ class Operator(OperatorBase):
             return True
         else:
             return False
+        
+    def check_for_init_phase(self, current_timestamp):
+        init_value = {
+            "stopping_time": None,
+            "overall_confidence": None,
+            "timestamp": timestamp_to_str(current_timestamp)
+        }
+        if self.init_phase_handler.operator_is_in_init_phase(current_timestamp):
+            logger.debug(self.init_phase_handler.generate_init_msg(current_timestamp, init_value))
+            return self.init_phase_handler.generate_init_msg(current_timestamp, init_value)
+
+        if self.init_phase_handler.init_phase_needs_to_be_reset():
+            logger.debug(self.init_phase_handler.reset_init_phase(init_value))
+            return self.init_phase_handler.reset_init_phase(init_value)
+
+        return False
 
 from operator_lib.operator_lib import OperatorLib
 if __name__ == "__main__":
