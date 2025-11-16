@@ -110,7 +110,7 @@ class Operator(OperatorBase):
             logger.debug(f"Historic data from: {current_timestamp}:  Window open: {window_open}!")
 
 
-        if window_open and real_time_data:
+        if window_open:
             self.window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
             self.window_opening_times.append(current_timestamp)
             save(self.data_path, WINDOW_OPENING_TIMES_FILE, window_opening_times)
