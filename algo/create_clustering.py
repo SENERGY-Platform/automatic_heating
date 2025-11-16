@@ -32,7 +32,7 @@ def compute_clustering(window_opening_times: list):
     clusters = {}
     for c in np.unique(clustering.labels_):
         ix = np.where(clustering.labels_ == c)
-        clusters[c] = [window_opening_times[i] for i in ix]
+        clusters[c] = [window_opening_times[i] for i in ix[0]]
     return clusters
 
 def compute_clusters_boundaries(window_opening_times: list):
