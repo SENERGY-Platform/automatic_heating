@@ -80,6 +80,7 @@ class Operator(OperatorBase):
         self.init_phase_handler.send_first_init_msg(value)
 
         self.last_timestamp = load(self.data_path, LAST_TIMESTAMP_FILE)
+        self.window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
         
     def stop(self):
         super().stop()
@@ -109,11 +110,15 @@ class Operator(OperatorBase):
             logger.debug(f"Historic data from: {current_timestamp}:  Window open: {window_open}!")
 
 
-        if window_open:
-            window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
-            window_opening_times.append(current_timestamp)
+        if window_open and real_time_data:
+            self.window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
+            self.window_opening_times.append(current_timestamp)
             save(self.data_path, WINDOW_OPENING_TIMES_FILE, window_opening_times)
-            del window_opening_times # window_opening_times is a potentially growing list->it's better to not hold it inside the memory all the time
+            # self.window_opening_times is a potentially growing list->it's better to not hold it inside the memory all the time
+            del self.window_opening_times 
+        elif window_open and not real_time_data:
+            # If historic data is loaded we should hold self.window_opening_times inside memory to avoid saving and loading data all the time.
+            self.window_opening_times.append(current_timestamp)
         
         outcome = self.check_for_init_phase(current_timestamp)
         if outcome: return outcome  # init phase cuts of normal analysis
