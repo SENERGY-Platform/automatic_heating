@@ -80,7 +80,7 @@ class Operator(OperatorBase):
         self.init_phase_handler.send_first_init_msg(value)
 
         self.last_timestamp = load(self.data_path, LAST_TIMESTAMP_FILE)
-        self.window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
+        #self.window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
         
     def stop(self):
         super().stop()
@@ -110,15 +110,15 @@ class Operator(OperatorBase):
             logger.debug(f"Historic data from: {current_timestamp}:  Window open: {window_open}!")
 
 
-        if window_open and real_time_data:
+        if window_open:
             self.window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
             self.window_opening_times.append(current_timestamp)
             save(self.data_path, WINDOW_OPENING_TIMES_FILE, self.window_opening_times)
             # self.window_opening_times is a potentially growing list->it's better to not hold it inside the memory all the time
             del self.window_opening_times 
-        elif window_open and not real_time_data:
+        #elif window_open and not real_time_data:
             # If historic data is loaded we should hold self.window_opening_times inside memory to avoid saving and loading data all the time.
-            self.window_opening_times.append(current_timestamp)
+            #self.window_opening_times.append(current_timestamp)
         
         outcome = self.check_for_init_phase(current_timestamp)
         if outcome: return outcome  # init phase cuts of normal analysis
@@ -129,8 +129,8 @@ class Operator(OperatorBase):
 
         confidence_list = []
         if new_day:
-            if real_time_data:
-                self.window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
+            #if real_time_data:
+            self.window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
             clusters_boundaries = compute_clusters_boundaries(self.window_opening_times)
             current_day = current_timestamp.floor("d")
             for c in clusters_boundaries.keys():
@@ -145,6 +145,7 @@ class Operator(OperatorBase):
                                         "overall_confidence": str(overall_confidence),
                                         "timestamp": timestamp_to_str(current_timestamp)})
             logger.debug(f"Results for next day: {confidence_list}")
+            del self.window_opening_times
             return confidence_list
 
 
