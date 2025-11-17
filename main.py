@@ -133,7 +133,7 @@ class Operator(OperatorBase):
             if weekend:
                 considered_timestamps = window_opening_times["weekend"]
             else:
-                considered_timestamps = window_opening_times["week"]
+                considered_timestamps = window_opening_times["weekday"]
             if len(considered_timestamps) > 2:
                 clusters_boundaries = compute_clusters_boundaries(considered_timestamps)
                 current_day = current_timestamp.floor("d")
