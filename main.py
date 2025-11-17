@@ -151,15 +151,15 @@ class Operator(OperatorBase):
                     overall_confidence = confidence_by_spreading * confidence_by_daily_appearance
                 
                     confidence_list.append({"stopping_time": timestamp_to_str(pd.Timestamp.combine(current_day, pair_of_boundaries[0]) - self.inertia_buffer),
-                                            "confidence by spreading": str(confidence_by_spreading),
+                                            "confidence_by_spreading": str(confidence_by_spreading),
                                             "confidence by daily_ appearance": str(confidence_by_daily_appearance),
                                             "overall_confidence": str(overall_confidence),
                                             "timestamp": timestamp_to_str(current_timestamp)})
                 del window_opening_times
             else:
                 confidence_list.append({"stopping_time": "Not enough data!",
-                                        "confidence by spreading": str(0),
-                                        "confidence by daily_ appearance": str(0),
+                                        "confidence_by_spreading": str(0),
+                                        "confidence_by_dailyappearance": str(0),
                                         "overall_confidence": str(0),
                                         "timestamp": timestamp_to_str(current_timestamp)})
             logger.debug(f"Results for next day: {confidence_list}")
