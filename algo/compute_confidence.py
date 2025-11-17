@@ -18,7 +18,7 @@ def compute_confidence_from_spreading(list_of_ts:list, high_confidence_boundary:
         confidence = 1
     elif confidence <= 0:
         confidence = 0
-    return 
+    return confidence
 
 
 def check_for_times_during_last_x_days(window_opening_times: list, pair_of_boundaries: tuple, x_days=7):
