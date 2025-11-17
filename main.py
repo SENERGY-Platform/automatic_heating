@@ -135,12 +135,12 @@ class Operator(OperatorBase):
             else:
                 considered_timestamps = window_opening_times["weekday"]
             if len(considered_timestamps) > 2:
-                clusters_boundaries = compute_clusters_boundaries(considered_timestamps)
+                clusters_boundaries, indices = compute_clusters_boundaries(considered_timestamps)
                 current_day = current_timestamp.floor("d")
                 for c in clusters_boundaries.keys():
                     pair_of_boundaries = clusters_boundaries[c]
-
-                    confidence_by_spreading = compute_confidence_from_spreading(considered_timestamps, HIGH_CONFIDENCE_BOUNDARY, LOW_CONFIDENCE_BOUNDARY)
+                    ts_in_cluster = [considered_timestamps[i] for i in indices[c]]
+                    confidence_by_spreading = compute_confidence_from_spreading(ts_in_cluster, HIGH_CONFIDENCE_BOUNDARY, LOW_CONFIDENCE_BOUNDARY)
                     #confidence_by_daily_appearance = compute_confidence_by_daily_apperance(considered_timestamps, pair_of_boundaries, x_days=X_DAYS)
 
                     overall_confidence = confidence_by_spreading #* confidence_by_daily_appearance

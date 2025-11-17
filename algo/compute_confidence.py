@@ -11,8 +11,8 @@ def compute_second_momentum(list_of_ts:list):
     momentum = np.sqrt(non_avg_momentum/len(list_of_frac))
     return momentum*24*3600
 
-def compute_confidence_from_spreading(list_of_ts:list, high_confidence_boundary: float, low_confidence_boundary: float):
-    second_momentum = compute_second_momentum(list_of_ts)
+def compute_confidence_from_spreading(ts_in_cluster:list, high_confidence_boundary: float, low_confidence_boundary: float):
+    second_momentum = compute_second_momentum(ts_in_cluster)
     confidence = -1/(low_confidence_boundary - high_confidence_boundary)*second_momentum + 1+(high_confidence_boundary)/(low_confidence_boundary-high_confidence_boundary)
     if confidence >= 1:
         confidence = 1

@@ -29,18 +29,20 @@ def compute_clustering(window_opening_times: list):
 
     clustering = DBSCAN(eps=EPSILON, min_samples=2).fit(projections_onto_circle)
     clusters = {}
+    indices = {}
     for c in np.unique(clustering.labels_):
         ix = np.where(clustering.labels_ == c)
+        indices[c] = ix[0]
         clusters[c] = [window_opening_times[i] for i in ix[0]]
-    return clusters
+    return clusters, indices
 
 def compute_clusters_boundaries(window_opening_times: list):
-    clusters = compute_clustering(window_opening_times)
+    clusters, indices = compute_clustering(window_opening_times)
     clusters_boundaries = {}
     for c in clusters.keys():
         cluster_minimum = min(map(lambda x: x.time(), clusters[c]))
         cluster_maximum = max(map(lambda x: x.time(), clusters[c]))
         clusters_boundaries[c] = (cluster_minimum, cluster_maximum)
 
-    return clusters_boundaries
+    return clusters_boundaries, indices
 
