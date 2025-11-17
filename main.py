@@ -122,6 +122,12 @@ class Operator(OperatorBase):
                 window_opening_times["weekend"].append(current_timestamp)
             else:
                 window_opening_times["weekday"].append(current_timestamp)
+            
+            # If data from more than 60 days is stored delete entries.
+            window_opening_times["weekend"] = [ts for ts in window_opening_times["weekend"] if current_timestamp - ts <= pd.Timedelta(60,"d")]
+            window_opening_times["weekday"] = [ts for ts in window_opening_times["weekday"] if current_timestamp - ts <= pd.Timedelta(60,"d")]
+
+
             save(self.data_path, WINDOW_OPENING_TIMES_FILE, window_opening_times)
             # window_opening_times is a potentially growing list->it's better to not hold it inside the memory all the time
             del window_opening_times 
