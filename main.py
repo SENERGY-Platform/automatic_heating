@@ -94,8 +94,8 @@ class Operator(OperatorBase):
 
     def run(self, data: typing.Dict[str, typing.Any], selector: str, device_id, timestamp: datetime.datetime):
         # Convert to german time and then forget the timezone.
-        current_timestamp = pd.Timestamp(timestamp).tz_convert("Europe/Berlin").tz_localize(None)
-        if pd.Timestamp.now().tz_convert("Europe/Berlin").tz_localize(None) - current_timestamp > pd.Timedelta(60, "d"):
+        current_timestamp = pd.Timestamp(timestamp).tz_localize("Zulu").tz_convert("Europe/Berlin").tz_localize(None)
+        if pd.Timestamp.now(tz="Europe/Berlin").tz_localize(None) - current_timestamp > pd.Timedelta(60, "d"):
             return
 
         if self.first_data_time == None:
@@ -106,7 +106,7 @@ class Operator(OperatorBase):
 
         weekend = self.check_if_weekend(current_timestamp)
 
-        real_time_data = (pd.Timestamp.now().tz_convert("Europe/Berlin").tz_localize(None) - current_timestamp < pd.Timedelta(10, "s"))
+        real_time_data = (pd.Timestamp.now(tz="Europe/Berlin").tz_localize(None) - current_timestamp < pd.Timedelta(10, "s"))
 
         window_open = not bool(data["window_open"])
 
