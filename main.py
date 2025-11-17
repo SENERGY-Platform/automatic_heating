@@ -35,18 +35,19 @@ FIRST_DATA_FILENAME = "first_data_time.pickle"
 LAST_TIMESTAMP_FILE = "last_timestamp.pickle"
 WINDOW_OPENING_TIMES_FILE = "window_opening_times.pickle"
 
-X_DAYS = 7
-HIGH_CONFIDENCE_BOUNDARY = 600 # in seconds, corresponds to 10 minutes
-LOW_CONFIDENCE_BOUNDARY = 3600 # in seconds, corresponds to 1 hour
-
-INERTIA_BUFFER = pd.Timedelta(10, "min")
 
 from operator_lib.util import Config
 class CustomConfig(Config):
     data_path = "/opt/data"
     init_phase_length: float = 2
     init_phase_level: str = "d"
-    notification_mode: str = "never"
+    
+    high_confidence_boundary: int = 600 # in seconds, corresponds to 10 minutes
+    low_confidence_boundary: int = 3600 # in seconds, corresponds to 1 hour
+
+    inertia_buffer: int = 10 # in minutes
+
+    confidence_days: int = 7 # iin days
 
     def __init__(self, d, **kwargs):
         super().__init__(d, **kwargs)
@@ -67,6 +68,13 @@ class Operator(OperatorBase):
         self.data_path = self.config.data_path
         if not os.path.exists(self.data_path):
             os.mkdir(self.data_path)
+
+        self.high_confidence_boundary = self.config.high_confidence_boundary
+        self.low_confidence_boundary = self.config.low_confidence_boundary
+
+        self.inertia_buffer = pd.Timestamp(self.config.inertia_buffer, "min")
+
+        self.confidence_days = self.config.confidence_days
 
         self.first_data_time = load(self.data_path, FIRST_DATA_FILENAME)
 
@@ -137,12 +145,12 @@ class Operator(OperatorBase):
                 for c in clusters_boundaries.keys():
                     pair_of_boundaries = clusters_boundaries[c]
                     ts_in_cluster = [considered_timestamps[i] for i in indices[c]]
-                    confidence_by_spreading = compute_confidence_from_spreading(ts_in_cluster, HIGH_CONFIDENCE_BOUNDARY, LOW_CONFIDENCE_BOUNDARY)
-                    #confidence_by_daily_appearance = compute_confidence_by_daily_apperance(considered_timestamps, pair_of_boundaries, x_days=X_DAYS)
+                    confidence_by_spreading = compute_confidence_from_spreading(ts_in_cluster, self.high_confidence_boundary, self.low_confidence_boundary)
+                    #confidence_by_daily_appearance = compute_confidence_by_daily_apperance(considered_timestamps, pair_of_boundaries, x_days=self.confidence_days)
 
                     overall_confidence = confidence_by_spreading #* confidence_by_daily_appearance
                 
-                    confidence_list.append({"stopping_time": timestamp_to_str(pd.Timestamp.combine(current_day, pair_of_boundaries[0]) - INERTIA_BUFFER),
+                    confidence_list.append({"stopping_time": timestamp_to_str(pd.Timestamp.combine(current_day, pair_of_boundaries[0]) - self.inertia_buffer),
                                         "overall_confidence": str(overall_confidence),
                                         "timestamp": timestamp_to_str(current_timestamp)})
                 del window_opening_times
