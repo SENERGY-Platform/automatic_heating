@@ -39,7 +39,7 @@ WINDOW_OPENING_TIMES_FILE = "window_opening_times.pickle"
 from operator_lib.util import Config
 class CustomConfig(Config):
     data_path = "/opt/data"
-    init_phase_length: float = 2
+    init_phase_length: float = 28
     init_phase_level: str = "d"
     
     high_confidence_boundary: int = 600 # in seconds, corresponds to 10 minutes
@@ -55,7 +55,7 @@ class CustomConfig(Config):
         if self.init_phase_length != '':
             self.init_phase_length = float(self.init_phase_length)
         else:
-            self.init_phase_length = 2
+            self.init_phase_length = 28
         
         if self.init_phase_level == '':
             self.init_phase_level = 'd'
