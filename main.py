@@ -31,9 +31,6 @@ from collections import defaultdict
 
 
 
-# TODO: Logging!
-
-
 FIRST_DATA_FILENAME = "first_data_time.pickle"
 LAST_TIMESTAMP_FILE = "last_timestamp.pickle"
 WINDOW_OPENING_TIMES_FILE = "window_opening_times.pickle"
@@ -148,12 +145,12 @@ class Operator(OperatorBase):
                     confidence_list.append({"stopping_time": timestamp_to_str(pd.Timestamp.combine(current_day, pair_of_boundaries[0]) - INERTIA_BUFFER),
                                         "overall_confidence": str(overall_confidence),
                                         "timestamp": timestamp_to_str(current_timestamp)})
-                logger.debug(f"Results for next day: {confidence_list}")
                 del window_opening_times
             else:
                 confidence_list.append({"stopping_time": "Not enough data!",
                                         "overall_confidence": str(0),
                                         "timestamp": timestamp_to_str(current_timestamp)})
+            logger.debug(f"Results for next day: {confidence_list}")
             return confidence_list
 
 
