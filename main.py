@@ -88,6 +88,8 @@ class Operator(OperatorBase):
 
     def run(self, data: typing.Dict[str, typing.Any], selector: str, device_id, timestamp: datetime.datetime):
         current_timestamp = pd.Timestamp(timestamp)
+        if pd.Timestamp.now() - current_timestamp > pd.Timedelta(30, "d"):
+            return
 
         if self.first_data_time == None:
             self.first_data_time = current_timestamp
