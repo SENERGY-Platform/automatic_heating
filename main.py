@@ -187,7 +187,7 @@ class Operator(OperatorBase):
         
     def check_for_init_phase(self, current_timestamp):
         init_value = {
-            "stopping_time": None,
+            "stopping_time": timestamp_to_str(current_timestamp),
             "overall_confidence": None,
             "timestamp": timestamp_to_str(current_timestamp)
         }
