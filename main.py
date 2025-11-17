@@ -21,7 +21,7 @@ import typing
 import dotenv
 dotenv.load_dotenv()
 
-from operator_lib.util import OperatorBase, logger, InitPhase, todatetime, timestamp_to_str
+from operator_lib.util import OperatorBase, logger, InitPhase, timestamp_to_str
 from operator_lib.util.persistence import save, load
 import os
 import datetime
