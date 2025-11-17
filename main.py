@@ -69,12 +69,12 @@ class Operator(OperatorBase):
         if not os.path.exists(self.data_path):
             os.mkdir(self.data_path)
 
-        self.high_confidence_boundary = self.config.high_confidence_boundary
-        self.low_confidence_boundary = self.config.low_confidence_boundary
+        self.high_confidence_boundary = int(self.config.high_confidence_boundary)
+        self.low_confidence_boundary = int(self.config.low_confidence_boundary)
 
         self.inertia_buffer = pd.Timestamp(int(self.config.inertia_buffer), "min")
 
-        self.confidence_days = self.config.confidence_days
+        self.confidence_days = int(self.config.confidence_days)
 
         self.first_data_time = load(self.data_path, FIRST_DATA_FILENAME)
 
