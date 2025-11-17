@@ -93,8 +93,9 @@ class Operator(OperatorBase):
         save(self.data_path, LAST_TIMESTAMP_FILE, self.last_timestamp)
 
     def run(self, data: typing.Dict[str, typing.Any], selector: str, device_id, timestamp: datetime.datetime):
-        current_timestamp = pd.Timestamp(timestamp)
-        if pd.Timestamp.now() - current_timestamp > pd.Timedelta(60, "d"):
+        # Convert to german time and then forget the timezone.
+        current_timestamp = pd.Timestamp(timestamp).tz_convert("Europe/Berlin").tz_localize(None)
+        if pd.Timestamp.now().tz_convert("Europe/Berlin").tz_localize(None) - current_timestamp > pd.Timedelta(60, "d"):
             return
 
         if self.first_data_time == None:
@@ -105,7 +106,7 @@ class Operator(OperatorBase):
 
         weekend = self.check_if_weekend(current_timestamp)
 
-        real_time_data = (pd.Timestamp.now() - current_timestamp < pd.Timedelta(10, "s"))
+        real_time_data = (pd.Timestamp.now().tz_convert("Europe/Berlin").tz_localize(None) - current_timestamp < pd.Timedelta(10, "s"))
 
         window_open = not bool(data["window_open"])
 
