@@ -21,8 +21,8 @@ def compute_confidence_from_spreading(ts_in_cluster:list, high_confidence_bounda
     return confidence
 
 
-def check_for_times_during_last_x_days(considered_timestamps: list, pair_of_boundaries: tuple, x_days=7):
-    current_day = pd.Timestamp.now().floor("d")
+def check_for_times_during_last_x_days(current_timestamp, considered_timestamps: list, pair_of_boundaries: tuple, confidence_days=7):
+    current_day = current_timestamp.floor("d")
     # Convert time object corresponding to left boundary into timedelta
     delta_min_boundary = pd.Timestamp.combine(pd.Timestamp("2000-01-01"), pair_of_boundaries[0]) - pd.Timestamp("2000-01-01")
 
@@ -30,16 +30,27 @@ def check_for_times_during_last_x_days(considered_timestamps: list, pair_of_boun
     delta_max_boundary = pd.Timestamp.combine(pd.Timestamp("2000-01-01"), pair_of_boundaries[1]) - pd.Timestamp("2000-01-01")
     
     nr_days_in_cluster = 0
-
-    for i in range(x_days):
-        for window_opening_time in considered_timestamps:
-            if (current_day - (i+1)*pd.Timedelta(1, "d") + delta_min_boundary <= window_opening_time and 
-                window_opening_time <= current_day - (i+1)*pd.Timedelta(1, "d") + delta_max_boundary):
-                nr_days_in_cluster += 1
+    already_considered_days = 0
+    
+    for i in range(50):
+        if check_if_weekend(current_timestamp) == check_if_weekend(current_timestamp - (i+1)*pd.Timedelta(1, "d")):
+            for window_opening_time in considered_timestamps:
+                if (current_day - (i+1)*pd.Timedelta(1, "d") + delta_min_boundary <= window_opening_time and 
+                    window_opening_time <= current_day - (i+1)*pd.Timedelta(1, "d") + delta_max_boundary):
+                    nr_days_in_cluster += 1
+                    break
+            already_considered_days += 1
+            if already_considered_days == confidence_days:
                 break
 
     return nr_days_in_cluster
 
-def compute_confidence_by_daily_apperance(considered_timestamps: list, pair_of_boundaries: tuple, x_days=7):
-    nr_days_in_cluster = check_for_times_during_last_x_days(considered_timestamps, pair_of_boundaries, x_days=7)
-    return nr_days_in_cluster/x_days
+def compute_confidence_by_daily_apperance(current_timestamp, considered_timestamps: list, pair_of_boundaries: tuple, confidence_days=7):
+    nr_days_in_cluster = check_for_times_during_last_x_days(current_timestamp, considered_timestamps, pair_of_boundaries, confidence_days=7)
+    return nr_days_in_cluster/confidence_days
+
+def check_if_weekend(current_timestamp: pd.Timestamp):
+        if current_timestamp.weekday() <= 4: # Mo, Tu, Wd, Th, Fr
+            return False
+        else:
+            return True
