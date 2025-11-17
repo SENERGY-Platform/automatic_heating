@@ -162,7 +162,7 @@ class Operator(OperatorBase):
                                         "overall_confidence": str(0),
                                         "timestamp": timestamp_to_str(current_timestamp)})
             logger.debug(f"Results for next day: {confidence_list}")
-            return {key: confidence_list[key] for key in ["stopping_time", "overall_confidence", "timestamp"]}
+            return [{key: confidence_entry[key] for key in ["stopping_time", "overall_confidence", "timestamp"]} for confidence_entry in confidence_list]
 
 
 
