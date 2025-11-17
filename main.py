@@ -80,7 +80,6 @@ class Operator(OperatorBase):
         self.init_phase_handler.send_first_init_msg(value)
 
         self.last_timestamp = load(self.data_path, LAST_TIMESTAMP_FILE)
-        #self.window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
         
     def stop(self):
         super().stop()
@@ -111,14 +110,11 @@ class Operator(OperatorBase):
 
 
         if window_open:
-            self.window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
-            self.window_opening_times.append(current_timestamp)
-            save(self.data_path, WINDOW_OPENING_TIMES_FILE, self.window_opening_times)
-            # self.window_opening_times is a potentially growing list->it's better to not hold it inside the memory all the time
-            del self.window_opening_times 
-        #elif window_open and not real_time_data:
-            # If historic data is loaded we should hold self.window_opening_times inside memory to avoid saving and loading data all the time.
-            #self.window_opening_times.append(current_timestamp)
+            window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
+            window_opening_times.append(current_timestamp)
+            save(self.data_path, WINDOW_OPENING_TIMES_FILE, window_opening_times)
+            # window_opening_times is a potentially growing list->it's better to not hold it inside the memory all the time
+            del window_opening_times 
         
         outcome = self.check_for_init_phase(current_timestamp)
         if outcome: return outcome  # init phase cuts of normal analysis
@@ -129,15 +125,14 @@ class Operator(OperatorBase):
 
         confidence_list = []
         if new_day:
-            #if real_time_data:
-            self.window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
-            clusters_boundaries = compute_clusters_boundaries(self.window_opening_times)
+            window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
+            clusters_boundaries = compute_clusters_boundaries(window_opening_times)
             current_day = current_timestamp.floor("d")
             for c in clusters_boundaries.keys():
                 pair_of_boundaries = clusters_boundaries[c]
 
-                confidence_by_spreading = compute_confidence_from_spreading(self.window_opening_times, HIGH_CONFIDENCE_BOUNDARY, LOW_CONFIDENCE_BOUNDARY)
-                confidence_by_daily_appearance = compute_confidence_by_daily_apperance(self.window_opening_times, pair_of_boundaries, x_days=X_DAYS)
+                confidence_by_spreading = compute_confidence_from_spreading(window_opening_times, HIGH_CONFIDENCE_BOUNDARY, LOW_CONFIDENCE_BOUNDARY)
+                confidence_by_daily_appearance = compute_confidence_by_daily_apperance(window_opening_times, pair_of_boundaries, x_days=X_DAYS)
 
                 overall_confidence = confidence_by_spreading * confidence_by_daily_appearance
                 
@@ -145,7 +140,7 @@ class Operator(OperatorBase):
                                         "overall_confidence": str(overall_confidence),
                                         "timestamp": timestamp_to_str(current_timestamp)})
             logger.debug(f"Results for next day: {confidence_list}")
-            del self.window_opening_times
+            del window_opening_times
             return confidence_list
 
 
