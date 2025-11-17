@@ -27,6 +27,7 @@ import os
 import datetime
 import pandas as pd
 from algo import compute_clusters_boundaries, compute_confidence_from_spreading, compute_confidence_by_daily_apperance
+from collections import defaultdict
 
 
 
@@ -97,6 +98,8 @@ class Operator(OperatorBase):
         if self.last_timestamp == None:
             self.last_timestamp = current_timestamp
 
+        weekend = self.check_if_weekend(current_timestamp)
+
         real_time_data = (pd.Timestamp.now() - current_timestamp < pd.Timedelta(10, "s"))
 
         window_open = not bool(data["window_open"])
@@ -108,8 +111,11 @@ class Operator(OperatorBase):
 
 
         if window_open:
-            window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
-            window_opening_times.append(current_timestamp)
+            window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=defaultdict(list))
+            if weekend:
+                window_opening_times["weekend"].append(current_timestamp)
+            else:
+                window_opening_times["weekday"].append(current_timestamp)
             save(self.data_path, WINDOW_OPENING_TIMES_FILE, window_opening_times)
             # window_opening_times is a potentially growing list->it's better to not hold it inside the memory all the time
             del window_opening_times 
@@ -124,15 +130,19 @@ class Operator(OperatorBase):
         confidence_list = []
         if new_day:
             window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
-            clusters_boundaries = compute_clusters_boundaries(window_opening_times)
+            if weekend:
+                considered_timestamps = window_opening_times["weekend"]
+            else:
+                considered_timestamps = window_opening_times["week"]
+            clusters_boundaries = compute_clusters_boundaries(considered_timestamps)
             current_day = current_timestamp.floor("d")
             for c in clusters_boundaries.keys():
                 pair_of_boundaries = clusters_boundaries[c]
 
-                confidence_by_spreading = compute_confidence_from_spreading(window_opening_times, HIGH_CONFIDENCE_BOUNDARY, LOW_CONFIDENCE_BOUNDARY)
-                confidence_by_daily_appearance = compute_confidence_by_daily_apperance(window_opening_times, pair_of_boundaries, x_days=X_DAYS)
+                confidence_by_spreading = compute_confidence_from_spreading(considered_timestamps, HIGH_CONFIDENCE_BOUNDARY, LOW_CONFIDENCE_BOUNDARY)
+                #confidence_by_daily_appearance = compute_confidence_by_daily_apperance(considered_timestamps, pair_of_boundaries, x_days=X_DAYS)
 
-                overall_confidence = confidence_by_spreading * confidence_by_daily_appearance
+                overall_confidence = confidence_by_spreading #* confidence_by_daily_appearance
                 
                 confidence_list.append({"stopping_time": timestamp_to_str(pd.Timestamp.combine(current_day, pair_of_boundaries[0]) - INERTIA_BUFFER),
                                         "overall_confidence": str(overall_confidence),
@@ -150,6 +160,12 @@ class Operator(OperatorBase):
             return True
         else:
             return False
+        
+    def check_if_weekend(self, current_timestamp: pd.Timestamp):
+        if current_timestamp.weekday() <= 4: # Mo, Tu, Wd, Th, Fr
+            return False
+        else:
+            return True
         
     def check_for_init_phase(self, current_timestamp):
         init_value = {

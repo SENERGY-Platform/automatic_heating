@@ -21,7 +21,7 @@ def compute_confidence_from_spreading(list_of_ts:list, high_confidence_boundary:
     return confidence
 
 
-def check_for_times_during_last_x_days(window_opening_times: list, pair_of_boundaries: tuple, x_days=7):
+def check_for_times_during_last_x_days(considered_timestamps: list, pair_of_boundaries: tuple, x_days=7):
     current_day = pd.Timestamp.now().floor("d")
     # Convert time object corresponding to left boundary into timedelta
     delta_min_boundary = pd.Timestamp.combine(pd.Timestamp("2000-01-01"), pair_of_boundaries[0]) - pd.Timestamp("2000-01-01")
@@ -32,7 +32,7 @@ def check_for_times_during_last_x_days(window_opening_times: list, pair_of_bound
     nr_days_in_cluster = 0
 
     for i in range(x_days):
-        for window_opening_time in window_opening_times:
+        for window_opening_time in considered_timestamps:
             if (current_day - (i+1)*pd.Timedelta(1, "d") + delta_min_boundary <= window_opening_time and 
                 window_opening_time <= current_day - (i+1)*pd.Timedelta(1, "d") + delta_max_boundary):
                 nr_days_in_cluster += 1
@@ -40,6 +40,6 @@ def check_for_times_during_last_x_days(window_opening_times: list, pair_of_bound
 
     return nr_days_in_cluster
 
-def compute_confidence_by_daily_apperance(window_opening_times: list, pair_of_boundaries: tuple, x_days=7):
-    nr_days_in_cluster = check_for_times_during_last_x_days(window_opening_times, pair_of_boundaries, x_days=7)
+def compute_confidence_by_daily_apperance(considered_timestamps: list, pair_of_boundaries: tuple, x_days=7):
+    nr_days_in_cluster = check_for_times_during_last_x_days(considered_timestamps, pair_of_boundaries, x_days=7)
     return nr_days_in_cluster/x_days
