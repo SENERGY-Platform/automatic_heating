@@ -13,7 +13,12 @@ def compute_second_momentum(list_of_ts:list):
 
 def compute_confidence_from_spreading(list_of_ts:list, high_confidence_boundary: float, low_confidence_boundary: float):
     second_momentum = compute_second_momentum(list_of_ts)
-    return -1/(low_confidence_boundary - high_confidence_boundary)*second_momentum + 1+(high_confidence_boundary)/(low_confidence_boundary-high_confidence_boundary)
+    confidence = -1/(low_confidence_boundary - high_confidence_boundary)*second_momentum + 1+(high_confidence_boundary)/(low_confidence_boundary-high_confidence_boundary)
+    if confidence >= 1:
+        confidence = 1
+    elif confidence <= 0:
+        confidence = 0
+    return 
 
 
 def check_for_times_during_last_x_days(window_opening_times: list, pair_of_boundaries: tuple, x_days=7):

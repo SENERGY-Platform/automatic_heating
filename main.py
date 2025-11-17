@@ -102,7 +102,7 @@ class Operator(OperatorBase):
 
         real_time_data = (pd.Timestamp.now() - current_timestamp < pd.Timedelta(10, "s"))
 
-        window_open = bool(data["window_open"])
+        window_open = not bool(data["window_open"])
 
         if real_time_data:
             logger.debug(f"{current_timestamp}:  Window open: {window_open}!")
