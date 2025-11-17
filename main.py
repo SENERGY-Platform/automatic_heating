@@ -72,7 +72,7 @@ class Operator(OperatorBase):
         self.high_confidence_boundary = self.config.high_confidence_boundary
         self.low_confidence_boundary = self.config.low_confidence_boundary
 
-        self.inertia_buffer = pd.Timestamp(self.config.inertia_buffer, "min")
+        self.inertia_buffer = pd.Timestamp(int(self.config.inertia_buffer), "min")
 
         self.confidence_days = self.config.confidence_days
 
