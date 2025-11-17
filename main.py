@@ -134,21 +134,26 @@ class Operator(OperatorBase):
                 considered_timestamps = window_opening_times["weekend"]
             else:
                 considered_timestamps = window_opening_times["week"]
-            clusters_boundaries = compute_clusters_boundaries(considered_timestamps)
-            current_day = current_timestamp.floor("d")
-            for c in clusters_boundaries.keys():
-                pair_of_boundaries = clusters_boundaries[c]
+            if len(considered_timestamps) > 2:
+                clusters_boundaries = compute_clusters_boundaries(considered_timestamps)
+                current_day = current_timestamp.floor("d")
+                for c in clusters_boundaries.keys():
+                    pair_of_boundaries = clusters_boundaries[c]
 
-                confidence_by_spreading = compute_confidence_from_spreading(considered_timestamps, HIGH_CONFIDENCE_BOUNDARY, LOW_CONFIDENCE_BOUNDARY)
-                #confidence_by_daily_appearance = compute_confidence_by_daily_apperance(considered_timestamps, pair_of_boundaries, x_days=X_DAYS)
+                    confidence_by_spreading = compute_confidence_from_spreading(considered_timestamps, HIGH_CONFIDENCE_BOUNDARY, LOW_CONFIDENCE_BOUNDARY)
+                    #confidence_by_daily_appearance = compute_confidence_by_daily_apperance(considered_timestamps, pair_of_boundaries, x_days=X_DAYS)
 
-                overall_confidence = confidence_by_spreading #* confidence_by_daily_appearance
+                    overall_confidence = confidence_by_spreading #* confidence_by_daily_appearance
                 
-                confidence_list.append({"stopping_time": timestamp_to_str(pd.Timestamp.combine(current_day, pair_of_boundaries[0]) - INERTIA_BUFFER),
+                    confidence_list.append({"stopping_time": timestamp_to_str(pd.Timestamp.combine(current_day, pair_of_boundaries[0]) - INERTIA_BUFFER),
                                         "overall_confidence": str(overall_confidence),
                                         "timestamp": timestamp_to_str(current_timestamp)})
-            logger.debug(f"Results for next day: {confidence_list}")
-            del window_opening_times
+                logger.debug(f"Results for next day: {confidence_list}")
+                del window_opening_times
+            else:
+                confidence_list.append({"stopping_time": "Not enough data!",
+                                        "overall_confidence": str(0),
+                                        "timestamp": timestamp_to_str(current_timestamp)})
             return confidence_list
 
 
