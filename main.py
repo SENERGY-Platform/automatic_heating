@@ -81,6 +81,7 @@ class Operator(OperatorBase):
         self.init_phase_duration = pd.Timedelta(self.config.init_phase_length, self.config.init_phase_level)        
         self.init_phase_handler = InitPhase(self.data_path, self.init_phase_duration, self.first_data_time, self.produce)
         value = {
+            "stopping_time": timestamp_to_str(pd.Timestamp.now()),
             "timestamp": timestamp_to_str(pd.Timestamp.now())
         }
         self.init_phase_handler.send_first_init_msg(value)
