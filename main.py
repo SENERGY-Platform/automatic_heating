@@ -146,7 +146,7 @@ class Operator(OperatorBase):
                     pair_of_boundaries = clusters_boundaries[c]
                     ts_in_cluster = [considered_timestamps[i] for i in indices[c]]
                     confidence_by_spreading = compute_confidence_from_spreading(ts_in_cluster, self.high_confidence_boundary, self.low_confidence_boundary)
-                    confidence_by_daily_appearance = compute_confidence_by_daily_apperance(current_timestamp, considered_timestamps, pair_of_boundaries, x_days=self.confidence_days)
+                    confidence_by_daily_appearance = compute_confidence_by_daily_apperance(current_timestamp, considered_timestamps, pair_of_boundaries, confidence_days=self.confidence_days)
 
                     overall_confidence = confidence_by_spreading * confidence_by_daily_appearance
                 
