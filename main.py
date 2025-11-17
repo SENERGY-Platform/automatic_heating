@@ -95,8 +95,6 @@ class Operator(OperatorBase):
     def run(self, data: typing.Dict[str, typing.Any], selector: str, device_id, timestamp: datetime.datetime):
         # Convert to german time and then forget the timezone.
         current_timestamp = pd.Timestamp(timestamp).tz_localize("Zulu").tz_convert("Europe/Berlin").tz_localize(None)
-        if pd.Timestamp.now(tz="Europe/Berlin").tz_localize(None) - current_timestamp > pd.Timedelta(60, "d"):
-            return
 
         if self.first_data_time == None:
             self.first_data_time = current_timestamp
