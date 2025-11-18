@@ -88,7 +88,7 @@ class Operator(OperatorBase):
             "stopping_time": pd.Timestamp.now().isoformat(),
             "timestamp": pd.Timestamp.now().isoformat()
         }
-        self.init_phase_handler.send_first_init_msg(value)
+        #self.init_phase_handler.send_first_init_msg(value)
 
         self.last_timestamp = load(self.data_path, LAST_TIMESTAMP_FILE)
         
@@ -139,7 +139,7 @@ class Operator(OperatorBase):
             del window_opening_times 
         
         outcome = self.check_for_init_phase(current_timestamp)
-        if outcome: return outcome  # init phase cuts of normal analysis
+        if outcome: return  # init phase cuts of normal analysis
 
         new_day = self.check_for_new_day(self.last_timestamp, current_timestamp)
         self.last_timestamp = current_timestamp
