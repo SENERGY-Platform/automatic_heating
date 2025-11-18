@@ -155,7 +155,14 @@ class Operator(OperatorBase):
                 considered_timestamps = window_opening_times["weekend"]
             else:
                 considered_timestamps = window_opening_times["weekday"]
-            if len(considered_timestamps) > 2:
+            
+            if len(considered_timestamps) <= 2:
+                logger.debug({"stopping_time": "Not enough data!",
+                                        "confidence_by_spreading": str(0),
+                                        "confidence_by_dailyappearance": str(0),
+                                        "overall_confidence": str(0),
+                                        "timestamp": timestamp_to_str(current_timestamp)})
+            else:
                 clusters_boundaries, indices = compute_clusters_boundaries(considered_timestamps)
                 current_day = current_timestamp.floor("d")
                 for c in clusters_boundaries.keys():
@@ -171,15 +178,9 @@ class Operator(OperatorBase):
                                             "overall_confidence": str(overall_confidence),
                                             "timestamp": timestamp_to_str(current_timestamp)})
                 del window_opening_times
-            else:
-                confidence_list.append({"stopping_time": "Not enough data!",
-                                        "confidence_by_spreading": str(0),
-                                        "confidence_by_dailyappearance": str(0),
-                                        "overall_confidence": str(0),
-                                        "timestamp": timestamp_to_str(current_timestamp)})
-            logger.debug(f"Results for next day: {confidence_list}")
-            return [{key: confidence_entry[key] for key in ["stopping_time", "overall_confidence", "timestamp"]} for confidence_entry in confidence_list]
-
+                logger.debug(f"Results for next day: {confidence_list}")
+                return [{key: confidence_entry[key] for key in ["stopping_time", "overall_confidence", "timestamp"]} for confidence_entry in confidence_list]
+            
 
 
 
