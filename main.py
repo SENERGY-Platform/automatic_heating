@@ -111,9 +111,6 @@ class Operator(OperatorBase):
 
         real_time_data = (pd.Timestamp.now(tz="Europe/Berlin").tz_localize(None) - current_timestamp < pd.Timedelta(10, "s"))
 
-
-        logger.debug(f"Type: {type(data['window_open'])}    Value: {data['window_open']}")
-
         if self.contact_sensor:
             window_open = not bool(data["window_open"])
         else:
