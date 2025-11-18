@@ -147,7 +147,7 @@ class Operator(OperatorBase):
 
         confidence_list = []
         if new_day:
-            window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=[])
+            window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=defaultdict(list))
             if weekend:
                 considered_timestamps = window_opening_times["weekend"]
             else:
