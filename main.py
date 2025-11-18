@@ -47,7 +47,9 @@ class CustomConfig(Config):
 
     inertia_buffer: int = 10 # in minutes
 
-    confidence_days: int = 7 # iin days
+    confidence_days: int = 7 # in days
+
+    contact_sensor: bool = True
 
     def __init__(self, d, **kwargs):
         super().__init__(d, **kwargs)
@@ -75,6 +77,8 @@ class Operator(OperatorBase):
         self.inertia_buffer = pd.Timedelta(int(self.config.inertia_buffer), "min")
 
         self.confidence_days = int(self.config.confidence_days)
+
+        self.contact_sensor = bool(self.config.contact_sensor)
 
         self.first_data_time = load(self.data_path, FIRST_DATA_FILENAME)
 
@@ -107,7 +111,10 @@ class Operator(OperatorBase):
 
         real_time_data = (pd.Timestamp.now(tz="Europe/Berlin").tz_localize(None) - current_timestamp < pd.Timedelta(10, "s"))
 
-        window_open = not bool(data["window_open"])
+        if self.contact_sensor:
+            window_open = not bool(data["window_open"])
+        else:
+            window_open = bool(data["window_open"]) 
 
         if real_time_data:
             logger.debug(f"{current_timestamp}:  Window open: {window_open}!")
