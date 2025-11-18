@@ -21,7 +21,7 @@ import typing
 import dotenv
 dotenv.load_dotenv()
 
-from operator_lib.util import OperatorBase, logger, InitPhase, timestamp_to_str
+from operator_lib.util import OperatorBase, logger, InitPhase
 from operator_lib.util.persistence import save, load
 import os
 import datetime
@@ -85,8 +85,8 @@ class Operator(OperatorBase):
         self.init_phase_duration = pd.Timedelta(self.config.init_phase_length, self.config.init_phase_level)        
         self.init_phase_handler = InitPhase(self.data_path, self.init_phase_duration, self.first_data_time, self.produce)
         value = {
-            "stopping_time": timestamp_to_str(pd.Timestamp.now()),
-            "timestamp": timestamp_to_str(pd.Timestamp.now())
+            "stopping_time": pd.Timestamp.now().isoformat(),
+            "timestamp": pd.Timestamp.now().isoformat()
         }
         self.init_phase_handler.send_first_init_msg(value)
 
@@ -158,7 +158,7 @@ class Operator(OperatorBase):
                                         "confidence_by_spreading": str(0),
                                         "confidence_by_dailyappearance": str(0),
                                         "overall_confidence": str(0),
-                                        "timestamp": timestamp_to_str(current_timestamp)})
+                                        "timestamp": current_timestamp.isoformat()})
             else:
                 clusters_boundaries, indices = compute_clusters_boundaries(considered_timestamps)
                 current_day = current_timestamp.floor("d")
@@ -169,11 +169,11 @@ class Operator(OperatorBase):
                     confidence_by_daily_appearance = compute_confidence_by_daily_apperance(current_timestamp, considered_timestamps, pair_of_boundaries, confidence_days=self.confidence_days)
                     overall_confidence = confidence_by_spreading * confidence_by_daily_appearance
                 
-                    confidence_list.append({"stopping_time": timestamp_to_str(pd.Timestamp.combine(current_day, pair_of_boundaries[0]) - self.inertia_buffer),
+                    confidence_list.append({"stopping_time": (pd.Timestamp.combine(current_day, pair_of_boundaries[0]) - self.inertia_buffer).isoformat(),
                                             "confidence_by_spreading": str(confidence_by_spreading),
                                             "confidence by daily_ appearance": str(confidence_by_daily_appearance),
                                             "overall_confidence": str(overall_confidence),
-                                            "timestamp": timestamp_to_str(current_timestamp)})
+                                            "timestamp": current_timestamp.isoformat()})
                 del window_opening_times
                 logger.debug(f"Results for next day: {confidence_list}")
                 return [{key: confidence_entry[key] for key in ["stopping_time", "overall_confidence", "timestamp"]} for confidence_entry in confidence_list]
@@ -194,11 +194,11 @@ class Operator(OperatorBase):
         else:
             return True
         
-    def check_for_init_phase(self, current_timestamp):
+    def check_for_init_phase(self, current_timestamp: pd.Timestamp):
         init_value = {
-            "stopping_time": timestamp_to_str(current_timestamp),
+            "stopping_time": current_timestamp.isoformat(),
             "overall_confidence": None,
-            "timestamp": timestamp_to_str(current_timestamp)
+            "timestamp": current_timestamp.isoformat()
         }
         if self.init_phase_handler.operator_is_in_init_phase(current_timestamp):
             logger.debug(self.init_phase_handler.generate_init_msg(current_timestamp, init_value))
