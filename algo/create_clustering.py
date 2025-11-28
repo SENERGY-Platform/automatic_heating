@@ -3,7 +3,7 @@ import math
 import numpy as np
 from sklearn.cluster import DBSCAN
 
-EPSILON = .05
+EPSILON = .06
 
 def convert_to_day_seconds(ts: pd.Timestamp):
     ts = ts.round("1s")
