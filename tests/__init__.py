@@ -14,4 +14,3 @@
    limitations under the License.
 """
 
-from .test_operator import *

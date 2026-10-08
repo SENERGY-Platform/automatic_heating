@@ -14,46 +14,26 @@
    limitations under the License.
 """
 
-from ._util import *
-import algo
 import unittest
 
+import pandas as pd
 
-class TestOperator(unittest.TestCase):
-    def test_route(self):
-        mock_kafka_consumer = MockKafkaConsumer(mock_messages)
-        mock_operator = MockOperator()
-        mock_operator.init(
-            kafka_consumer=mock_kafka_consumer,
-            kafka_producer=MockKafkaProducer(mock_result),
-            filter_handler=init_filter_handler(mock_opr_config, "test_pipeline"),
-            output_topic="test_topic",
-            pipeline_id="test_pipeline",
-            operator_id="test_operator"
-        )
-        while not mock_kafka_consumer.empty():
-            mock_operator._OperatorBase__route()
+from main import Operator
 
-    def test_run(self):
-        try:
-            with open("tests/resources/opr_config.json") as file:
-                opr_config = json.load(file)
-            operator = algo.Operator(energy_src_id="device:pv:1", weather_src_id="weather_import")
-            operator.init(
-                kafka_consumer=None,
-                kafka_producer=None,
-                filter_handler=init_filter_handler(opr_config, None),
-                output_topic=None,
-                pipeline_id=None,
-                operator_id=None
-            )
-            with open("tests/resources/messages.txt") as file:
-                for line in file:
-                    results = operator._OperatorBase__call_run(json.loads(line.strip()))
-                    for result in results:
-                        print(result)
-        except FileNotFoundError as ex:
-            self.skipTest(ex)
+
+class TestPrepareOutputTimestamp(unittest.TestCase):
+    def convert(self, wall_time):
+        return Operator.prepare_output_timestamp(None, pd.Timestamp(wall_time))
+
+    def test_summer_and_winter_time(self):
+        self.assertEqual(self.convert("2026-07-01 12:00:00"), "2026-07-01T10:00:00Z")
+        self.assertEqual(self.convert("2026-01-01 12:00:00"), "2026-01-01T11:00:00Z")
+
+    def test_time_in_the_spring_gap_moves_to_three(self):
+        self.assertEqual(self.convert("2026-03-29 02:30:49.691"), "2026-03-29T01:00:00Z")
+
+    def test_repeated_autumn_hour_takes_standard_time(self):
+        self.assertEqual(self.convert("2026-10-25 02:30:00"), "2026-10-25T01:30:00Z")
 
 
 if __name__ == '__main__':
