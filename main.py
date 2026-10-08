@@ -211,7 +211,8 @@ class Operator(OperatorBase):
         return False
     
     def prepare_output_timestamp(self, current_timestamp: pd.Timestamp):
-        current_timestamp = current_timestamp.tz_localize("Europe/Berlin").tz_convert("Zulu")
+        # Wall times computed in Berlin can fall into the DST gap or the repeated hour.
+        current_timestamp = current_timestamp.tz_localize("Europe/Berlin", nonexistent="shift_forward", ambiguous=False).tz_convert("Zulu")
         current_timestamp_string = current_timestamp.isoformat().replace('+00:00', 'Z')
         return current_timestamp_string
 
