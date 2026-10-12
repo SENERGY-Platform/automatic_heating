@@ -7,3 +7,4 @@ data
 git_commit
 produce_test_data.py
 screenshots
+.venv

@@ -9,7 +9,7 @@ Learns when a window is opened, separately for weekdays and weekends, and predic
 
 ## Training
 
-The operator is an `MLOperator` of analytics-operator-lib-python. At start, when no model is registered in MLflow, and once a day it trains on the history of its input (`history_days`), merged with the openings it saw live since the last training. The model is stored in MLflow. There is no learning phase: with enough openings in the history it predicts from the first day change on.
+The operator is an `MLOperator` of analytics-operator-lib-python. At start, when no model is registered in MLflow, and once a day it trains on the history of its input (`history_days`), merged with the openings it saw live since the last training. The model is stored in MLflow. The training runs as a Ray task on the cluster (`algo/training.py`); the image starts the operator with `uv run`, so Ray builds the environment of `uv.lock` on the workers. There is no learning phase: with enough openings in the history it predicts from the first day change on.
 
 An input without readable history, such as the output of another operator in a new pipeline, starts cold and predicts once more than two openings of a day type are seen. A pipeline of an earlier version keeps what it learned: its `window_opening_times.pickle` is merged once at the first training.
 

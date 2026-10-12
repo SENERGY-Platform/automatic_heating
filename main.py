@@ -23,7 +23,7 @@ dotenv.load_dotenv()
 
 from operator_lib.util import MLOperator, Config, logger
 from operator_lib.util import clock
-from operator_lib.util.helpers import provide_historic_data_local
+from operator_lib.util.helpers import provide_historic_data
 from operator_lib.util.persistence import load
 import os
 import json
@@ -32,8 +32,10 @@ import threading
 import collections
 import time
 import pandas as pd
+import ray
 from algo import compute_clusters_boundaries, compute_confidence_from_spreading, compute_confidence_by_daily_apperance
 from algo.model import OpeningsModel, to_utc_ns, to_wall_time, wall_time_to_utc_ns
+from algo.training import train_openings_model, window_open as is_window_open
 
 
 STATE_FILE = "openings_state.json"
@@ -160,36 +162,22 @@ class Operator(MLOperator):
         logger.info(f"imported {len(openings)} window openings from {LEGACY_WINDOW_OPENING_TIMES_FILE}")
         return openings
 
-    def _read_history(self):
-        """
-        The window openings in the input history and the earliest time the
-        history covers, or None if there is no history.
-        """
+    def _request_history(self):
+        """References to the input history, read by the training task; None if it cannot be requested."""
         try:
-            datasets = provide_historic_data_local(datetime.timedelta(days=self.config.history_days))
-            frames = [ds.to_pandas() for ds in datasets]
+            return provide_historic_data(datetime.timedelta(days=self.config.history_days))
         except Exception as ex:
             logger.info(f"no history available, training on stored openings only: {type(ex).__name__}: {ex}")
             return None
-        frames = [f[["time", "window_open"]] for f in frames if "time" in f.columns and "window_open" in f.columns]
-        frame = pd.concat(frames, ignore_index=True).dropna(subset=["time", "window_open"]) if frames else None
-        if frame is None or frame.empty:
-            logger.info("history is empty, training on stored openings only")
-            return None
-        times = [to_utc_ns(t) for t in frame["time"]]
-        openings = [t for t, value in zip(times, frame["window_open"]) if self._window_open(value)]
-        return openings, min(times)
 
     def _window_open(self, value) -> bool:
-        if self.config.contact_sensor:
-            return not bool(value)
-        return bool(value)
+        return is_window_open(value, self.config.contact_sensor)
 
     def train(self, model, train_logger):
         self._ensure_loaded()
         previous = _unwrap(model)
         now = to_utc_ns(clock.now())
-        history = self._read_history()
+        datasets = self._request_history()
 
         with self._lock:
             consumed = list(self.recent)
@@ -204,16 +192,10 @@ class Operator(MLOperator):
                 others += legacy
                 legacy_imported = True
 
-        if history is None:
-            openings = others
-        else:
-            history_openings, history_start = history
-            # An opening carries the device time in the history and the Kafka time everywhere else, so exact
-            # deduplication would count it twice; where the history reaches, only the history counts.
-            openings = history_openings + [t for t in others if t < history_start or t > now]
-
-        openings = [t for t in set(openings) if now - t <= RETENTION_NS]
-        logger.info(f"trained on {len(openings)} window openings")
+        openings_model, notes = ray.get(train_openings_model.remote(
+            datasets, others, now, self.config.contact_sensor, legacy_imported, RETENTION_NS))
+        for note in notes:
+            logger.info(note)
         # The live openings are in the model now (or replaced by the history); infer must not count them twice.
         with self._lock:
             left = collections.Counter(consumed)
@@ -226,7 +208,7 @@ class Operator(MLOperator):
             self.recent = remaining
             self.trained_day = to_wall_time(now).date()
             self._save_state()
-        return OpeningsModel.from_openings(openings, trained_until=now, legacy_imported=legacy_imported)
+        return openings_model
 
     def need_retraining(self, model) -> bool:
         with self._lock:

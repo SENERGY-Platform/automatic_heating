@@ -32,6 +32,7 @@ from operator_lib.util import clock
 import main
 from main import Operator, CustomConfig, STATE_FILE, RETENTION_NS
 from algo.model import OpeningsModel, to_utc_ns, wall_time_to_utc_ns
+from algo.training import fit_openings_model
 
 BERLIN = "Europe/Berlin"
 
@@ -82,6 +83,19 @@ def weekday_and_weekend_openings(first_day: str, last_day: str):
     return openings, closings
 
 
+@contextlib.contextmanager
+def training_without_ray(history=None, history_error=None):
+    """The history request answers with the given datasets and the training task runs in-process."""
+    if history_error is not None:
+        request = mock.patch("main.provide_historic_data", side_effect=history_error)
+    else:
+        request = mock.patch("main.provide_historic_data", return_value=history)
+    with request, \
+         mock.patch("main.train_openings_model", mock.Mock(remote=fit_openings_model)), \
+         mock.patch("main.ray.get", side_effect=lambda result: result):
+        yield
+
+
 class OperatorTestCase(unittest.TestCase):
     def setUp(self):
         self.addCleanup(clock.set_fixed, None)
@@ -96,11 +110,7 @@ class OperatorTestCase(unittest.TestCase):
 
     def train(self, op, model=None, history=None, history_error=None, now="2026-01-11 23:00:00"):
         clock.set_fixed(berlin(now).to_pydatetime())
-        if history_error is not None:
-            patch = mock.patch("main.provide_historic_data_local", side_effect=history_error)
-        else:
-            patch = mock.patch("main.provide_historic_data_local", return_value=history)
-        with patch:
+        with training_without_ray(history, history_error):
             return op.train(model, None)
 
     def infer(self, op, model, wall_time, window_open=False):
@@ -444,7 +454,7 @@ class TestLifecycle(OperatorTestCase):
              mock.patch("operator_lib.util.op_ml.mlflow") as mock_mlflow, \
              mock.patch("operator_lib.util.op_ml.MlflowClient"), \
              mock.patch("operator_lib.util.op_ml.TrainMlflowLogger", _LoggerMock), \
-             mock.patch("main.provide_historic_data_local", return_value=history):
+             training_without_ray(history):
             mock_mlflow.pyfunc.log_model.side_effect = log_model
             mock_mlflow.pyfunc.load_model.side_effect = load_model
             op.init(kafka_consumer=None, kafka_producer=None, filter_handler=None, output_topic=None,
