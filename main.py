@@ -21,27 +21,33 @@ import typing
 import dotenv
 dotenv.load_dotenv()
 
-from operator_lib.util import OperatorBase, logger, InitPhase
-from operator_lib.util.persistence import save, load
+from operator_lib.util import MLOperator, Config, logger
+from operator_lib.util import clock
+from operator_lib.util.helpers import provide_historic_data_local
+from operator_lib.util.persistence import load
 import os
+import json
 import datetime
+import threading
+import collections
+import time
 import pandas as pd
 from algo import compute_clusters_boundaries, compute_confidence_from_spreading, compute_confidence_by_daily_apperance
-from collections import defaultdict
+from algo.model import OpeningsModel, to_utc_ns, to_wall_time, wall_time_to_utc_ns
 
 
+STATE_FILE = "openings_state.json"
+# Written by the operator before it trained models; read once so existing pipelines keep what they learned.
+LEGACY_WINDOW_OPENING_TIMES_FILE = "window_opening_times.pickle"
+LEGACY_LAST_TIMESTAMP_FILE = "last_timestamp.pickle"
 
-FIRST_DATA_FILENAME = "first_data_time.pickle"
-LAST_TIMESTAMP_FILE = "last_timestamp.pickle"
-WINDOW_OPENING_TIMES_FILE = "window_opening_times.pickle"
+RETENTION_NS = 60 * 24 * 3600 * 10**9  # 60 days
+SAVE_INTERVAL_S = 60
 
 
-from operator_lib.util import Config
 class CustomConfig(Config):
     data_path = "/opt/data"
-    init_phase_length: float = 28
-    init_phase_level: str = "d"
-    
+
     high_confidence_boundary: int = 600 # in seconds, corresponds to 10 minutes
     low_confidence_boundary: int = 3600 # in seconds, corresponds to 1 hour
 
@@ -51,165 +57,253 @@ class CustomConfig(Config):
 
     contact_sensor: bool = True
 
+    history_days: float = 60 # in days, read at each training
+
     def __init__(self, d, **kwargs):
         super().__init__(d, **kwargs)
 
-        if self.init_phase_length != '':
-            self.init_phase_length = float(self.init_phase_length)
-        else:
-            self.init_phase_length = 28
-        
-        if self.init_phase_level == '':
-            self.init_phase_level = 'd'
+        # Parsed as before the port; only history_days is new.
+        self.high_confidence_boundary = int(self.high_confidence_boundary)
+        self.low_confidence_boundary = int(self.low_confidence_boundary)
+        self.inertia_buffer = int(self.inertia_buffer)
+        self.confidence_days = int(self.confidence_days)
+        self.history_days = 60 if str(self.history_days).strip() == "" else float(self.history_days)
+        # Read as before the port: any non-empty string, "False" included, switches the inversion on.
+        self.contact_sensor = bool(self.contact_sensor)
 
-class Operator(OperatorBase):
+
+def _unwrap(model) -> typing.Optional[OpeningsModel]:
+    if model is None:
+        return None
+    if hasattr(model, "unwrap_python_model"):
+        model = model.unwrap_python_model()
+    if not isinstance(model, OpeningsModel):
+        logger.warning(f"ignoring a model of unexpected type {type(model).__name__}")
+        return None
+    return model
+
+
+class Operator(MLOperator):
     configType = CustomConfig
 
-    def init(self, *args, **kwargs):
-        super().init(*args, **kwargs)
-        self.data_path = self.config.data_path
-        if not os.path.exists(self.data_path):
-            os.mkdir(self.data_path)
+    def __init__(self):
+        # stop() runs on the watchdog thread while infer() may be running.
+        self._lock = threading.Lock()
+        self._loaded = False
+        self.recent = []  # openings seen live and not yet in a trained model, UTC ns
+        self.last_timestamp = None  # time of the last message, UTC ns
+        self.retrain = False
+        self.trained_day = None  # Berlin date of the wall clock at the last training
+        self._saved_at = None  # monotonic time of the last state save
 
-        self.high_confidence_boundary = int(self.config.high_confidence_boundary)
-        self.low_confidence_boundary = int(self.config.low_confidence_boundary)
-
-        self.inertia_buffer = pd.Timedelta(int(self.config.inertia_buffer), "min")
-
-        self.confidence_days = int(self.config.confidence_days)
-
-        self.contact_sensor = bool(self.config.contact_sensor)
-
-        self.first_data_time = load(self.data_path, FIRST_DATA_FILENAME)
-
-        self.init_phase_duration = pd.Timedelta(self.config.init_phase_length, self.config.init_phase_level)        
-        self.init_phase_handler = InitPhase(self.data_path, self.init_phase_duration, self.first_data_time, self.produce)
-        value = {
-            "stopping_time": self.prepare_output_timestamp(pd.Timestamp.now()),
-            "timestamp": self.prepare_output_timestamp(pd.Timestamp.now())
-        }
-        #self.init_phase_handler.send_first_init_msg(value)
-
-        self.last_timestamp = load(self.data_path, LAST_TIMESTAMP_FILE)
-        
     def stop(self):
         super().stop()
-        save(self.data_path, FIRST_DATA_FILENAME, self.first_data_time)
-        save(self.data_path, LAST_TIMESTAMP_FILE, self.last_timestamp)
+        with self._lock:
+            if self._loaded:
+                self._save_state()
 
-    def run(self, data: typing.Dict[str, typing.Any], selector: str, device_id, timestamp: datetime.datetime):
-        # Convert to german time and then forget the timezone.
-        current_timestamp = pd.Timestamp(timestamp).tz_convert("Europe/Berlin").tz_localize(None)
+    def _ensure_loaded(self):
+        # Lazy because MLOperator.init() calls train() before it returns.
+        with self._lock:
+            if self._loaded:
+                return
+            try:
+                os.makedirs(self.config.data_path, exist_ok=True)
+            except OSError as ex:
+                logger.error(f"cannot create {self.config.data_path}: {ex}")
+            self.recent, self.last_timestamp = self._load_state()
+            self._loaded = True
 
-        if self.first_data_time == None:
-            self.first_data_time = current_timestamp
-            self.init_phase_handler = InitPhase(self.data_path, self.init_phase_duration, self.first_data_time, self.produce)
-        if self.last_timestamp == None:
-            self.last_timestamp = current_timestamp
+    def _load_state(self):
+        path = os.path.join(self.config.data_path, STATE_FILE)
+        if os.path.exists(path):
+            try:
+                with open(path, "r") as f:
+                    state = json.load(f)
+                recent = [int(t) for t in state["recent"]]
+                last = state["last_timestamp"]
+                return recent, (None if last is None else int(last))
+            except (OSError, ValueError, KeyError, TypeError) as ex:
+                logger.error(f"ignoring unreadable state in {path}: {ex}")
+                return [], None
+        try:
+            legacy_last = load(self.config.data_path, LEGACY_LAST_TIMESTAMP_FILE)
+        except Exception as ex:
+            logger.error(f"ignoring unreadable {LEGACY_LAST_TIMESTAMP_FILE}: {ex}")
+            legacy_last = None
+        return [], (None if legacy_last is None else wall_time_to_utc_ns(legacy_last))
+
+    def _save_state(self):
+        # Caller holds the lock. Replacing the file keeps the previous state if writing fails halfway.
+        path = os.path.join(self.config.data_path, STATE_FILE)
+        tmp_path = path + ".tmp"
+        try:
+            with open(tmp_path, "w") as f:
+                json.dump({"recent": self.recent, "last_timestamp": self.last_timestamp}, f)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+            self._saved_at = time.monotonic()
+        except OSError as ex:
+            logger.error(f"cannot save state to {path}: {ex}")
+
+    def _read_legacy_openings(self) -> typing.Optional[typing.List[int]]:
+        """The openings stored before the operator trained models; None if the file is unreadable."""
+        try:
+            stored = load(self.config.data_path, LEGACY_WINDOW_OPENING_TIMES_FILE)
+            if stored is None:
+                return []
+            openings = [wall_time_to_utc_ns(ts) for key in ("weekday", "weekend") for ts in stored.get(key, [])]
+        except Exception as ex:
+            logger.error(f"cannot read {LEGACY_WINDOW_OPENING_TIMES_FILE}, retrying at the next training: {ex}")
+            return None
+        logger.info(f"imported {len(openings)} window openings from {LEGACY_WINDOW_OPENING_TIMES_FILE}")
+        return openings
+
+    def _read_history(self):
+        """
+        The window openings in the input history and the earliest time the
+        history covers, or None if there is no history.
+        """
+        try:
+            datasets = provide_historic_data_local(datetime.timedelta(days=self.config.history_days))
+            frames = [ds.to_pandas() for ds in datasets]
+        except Exception as ex:
+            logger.info(f"no history available, training on stored openings only: {type(ex).__name__}: {ex}")
+            return None
+        frames = [f[["time", "window_open"]] for f in frames if "time" in f.columns and "window_open" in f.columns]
+        frame = pd.concat(frames, ignore_index=True).dropna(subset=["time", "window_open"]) if frames else None
+        if frame is None or frame.empty:
+            logger.info("history is empty, training on stored openings only")
+            return None
+        times = [to_utc_ns(t) for t in frame["time"]]
+        openings = [t for t, value in zip(times, frame["window_open"]) if self._window_open(value)]
+        return openings, min(times)
+
+    def _window_open(self, value) -> bool:
+        if self.config.contact_sensor:
+            return not bool(value)
+        return bool(value)
+
+    def train(self, model, train_logger):
+        self._ensure_loaded()
+        previous = _unwrap(model)
+        now = to_utc_ns(clock.now())
+        history = self._read_history()
+
+        with self._lock:
+            consumed = list(self.recent)
+        others = list(consumed)
+        if previous is not None:
+            others += previous.weekday + previous.weekend
+
+        legacy_imported = previous is not None and previous.legacy_imported
+        if not legacy_imported:
+            legacy = self._read_legacy_openings()
+            if legacy is not None:
+                others += legacy
+                legacy_imported = True
+
+        if history is None:
+            openings = others
+        else:
+            history_openings, history_start = history
+            # An opening carries the device time in the history and the Kafka time everywhere else, so exact
+            # deduplication would count it twice; where the history reaches, only the history counts.
+            openings = history_openings + [t for t in others if t < history_start or t > now]
+
+        openings = [t for t in set(openings) if now - t <= RETENTION_NS]
+        logger.info(f"trained on {len(openings)} window openings")
+        # The live openings are in the model now (or replaced by the history); infer must not count them twice.
+        with self._lock:
+            left = collections.Counter(consumed)
+            remaining = []
+            for t in self.recent:
+                if left[t] > 0:
+                    left[t] -= 1
+                else:
+                    remaining.append(t)
+            self.recent = remaining
+            self.trained_day = to_wall_time(now).date()
+            self._save_state()
+        return OpeningsModel.from_openings(openings, trained_until=now, legacy_imported=legacy_imported)
+
+    def need_retraining(self, model) -> bool:
+        with self._lock:
+            retrain = self.retrain
+            self.retrain = False
+        return retrain
+
+    def infer(self, model, data: typing.Dict[str, typing.Any], selector: str, device_id, timestamp: datetime.datetime):
+        self._ensure_loaded()
+        utc_ns = to_utc_ns(timestamp)
+        # German wall time without zone, as the clustering expects.
+        current_timestamp = to_wall_time(utc_ns)
+        window_open = self._window_open(data["window_open"])
+        logger.debug(f"{current_timestamp}:  Window open: {window_open}!")
+
+        openings_model = _unwrap(model)
+        with self._lock:
+            if window_open:
+                self.recent.append(utc_ns)
+            new_day = self.last_timestamp is not None and self.check_for_new_day(to_wall_time(self.last_timestamp), current_timestamp)
+            # A late message must not move the day back, or the next message would start the same day again.
+            if self.last_timestamp is None or utc_ns > self.last_timestamp:
+                self.last_timestamp = utc_ns
+            if new_day:
+                # At most one training per day of the wall clock, so replaying a backlog does not train per replayed day.
+                self.retrain = self.trained_day != to_wall_time(to_utc_ns(clock.now())).date()
+                self.recent = [t for t in self.recent if utc_ns - t <= RETENTION_NS]
+            if new_day or (window_open and (self._saved_at is None
+                                            or time.monotonic() - self._saved_at >= SAVE_INTERVAL_S)):
+                self._save_state()
+            recent = list(self.recent)
+
+        if not new_day:
+            return None, None, None
 
         weekend = self.check_if_weekend(current_timestamp)
+        considered = {t for t in recent if self.check_if_weekend(to_wall_time(t)) == weekend}
+        if openings_model is not None:
+            considered.update(openings_model.openings(weekend))
+        considered_timestamps = [to_wall_time(t) for t in sorted(considered) if utc_ns - t <= RETENTION_NS]
 
-        real_time_data = (pd.Timestamp.now(tz="Europe/Berlin").tz_localize(None) - current_timestamp < pd.Timedelta(10, "s"))
+        if len(considered_timestamps) <= 2:
+            logger.debug({"stopping_time": "Not enough data!",
+                          "overall_confidence": str(0),
+                          "timestamp": self.prepare_output_timestamp(current_timestamp)})
+            return None, None, None
 
-        if self.contact_sensor:
-            window_open = not bool(data["window_open"])
-        else:
-            window_open = bool(data["window_open"]) 
-
-        if real_time_data:
-            logger.debug(f"{current_timestamp}:  Window open: {window_open}!")
-        else:
-            logger.debug(f"Historic data from: {current_timestamp}:  Window open: {window_open}!")
-
-
-        if window_open:
-            window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=defaultdict(list))
-            if weekend:
-                window_opening_times["weekend"].append(current_timestamp)
-            else:
-                window_opening_times["weekday"].append(current_timestamp)
-            
-            # If data from more than 60 days is stored delete entries.
-            window_opening_times["weekend"] = [ts for ts in window_opening_times["weekend"] if current_timestamp - ts <= pd.Timedelta(60,"d")]
-            window_opening_times["weekday"] = [ts for ts in window_opening_times["weekday"] if current_timestamp - ts <= pd.Timedelta(60,"d")]
-
-
-            save(self.data_path, WINDOW_OPENING_TIMES_FILE, window_opening_times)
-            # window_opening_times is a potentially growing list->it's better to not hold it inside the memory all the time
-            del window_opening_times 
-        
-        outcome = self.check_for_init_phase(current_timestamp)
-        if outcome: return  # init phase cuts of normal analysis
-
-        new_day = self.check_for_new_day(self.last_timestamp, current_timestamp)
-        self.last_timestamp = current_timestamp
-
-
+        inertia_buffer = pd.Timedelta(self.config.inertia_buffer, "min")
+        clusters_boundaries, indices = compute_clusters_boundaries(considered_timestamps)
+        current_day = current_timestamp.floor("d")
         confidence_list = []
-        if new_day:
-            window_opening_times = load(self.data_path, WINDOW_OPENING_TIMES_FILE, default=defaultdict(list))
-            if weekend:
-                considered_timestamps = window_opening_times["weekend"]
-            else:
-                considered_timestamps = window_opening_times["weekday"]
-            
-            if len(considered_timestamps) <= 2:
-                logger.debug({"stopping_time": "Not enough data!",
-                                        "confidence_by_spreading": str(0),
-                                        "confidence_by_dailyappearance": str(0),
-                                        "overall_confidence": str(0),
-                                        "timestamp": self.prepare_output_timestamp(current_timestamp)})
-            else:
-                clusters_boundaries, indices = compute_clusters_boundaries(considered_timestamps)
-                current_day = current_timestamp.floor("d")
-                for c in clusters_boundaries.keys():
-                    pair_of_boundaries = clusters_boundaries[c]
-                    ts_in_cluster = [considered_timestamps[i] for i in indices[c]]
-                    confidence_by_spreading = compute_confidence_from_spreading(ts_in_cluster, self.high_confidence_boundary, self.low_confidence_boundary)
-                    confidence_by_daily_appearance = compute_confidence_by_daily_apperance(current_timestamp, considered_timestamps, pair_of_boundaries, confidence_days=self.confidence_days)
-                    overall_confidence = confidence_by_spreading * confidence_by_daily_appearance
-                
-                    confidence_list.append({"stopping_time": self.prepare_output_timestamp(pd.Timestamp.combine(current_day, pair_of_boundaries[0]) - self.inertia_buffer),
-                                            "confidence_by_spreading": str(confidence_by_spreading),
-                                            "confidence by daily_ appearance": str(confidence_by_daily_appearance),
-                                            "overall_confidence": str(overall_confidence),
-                                            "timestamp": self.prepare_output_timestamp(current_timestamp)})
-                del window_opening_times
-                logger.debug(f"Results for next day: {confidence_list}")
-                return [{key: confidence_entry[key] for key in ["stopping_time", "overall_confidence", "timestamp"]} for confidence_entry in confidence_list]
-            
+        for c in clusters_boundaries.keys():
+            pair_of_boundaries = clusters_boundaries[c]
+            ts_in_cluster = [considered_timestamps[i] for i in indices[c]]
+            confidence_by_spreading = compute_confidence_from_spreading(ts_in_cluster, self.config.high_confidence_boundary, self.config.low_confidence_boundary)
+            confidence_by_daily_appearance = compute_confidence_by_daily_apperance(current_timestamp, considered_timestamps, pair_of_boundaries, confidence_days=self.config.confidence_days)
+            overall_confidence = confidence_by_spreading * confidence_by_daily_appearance
 
-
-
+            confidence_list.append({"stopping_time": self.prepare_output_timestamp(pd.Timestamp.combine(current_day, pair_of_boundaries[0]) - inertia_buffer),
+                                    "overall_confidence": str(overall_confidence),
+                                    "timestamp": self.prepare_output_timestamp(current_timestamp)})
+        logger.debug(f"Results for next day: {confidence_list}")
+        # No output time of its own, as before the port: the producer stamps it.
+        return None, confidence_list, None
 
     def check_for_new_day(self, last_timestamp: pd.Timestamp, current_timestamp: pd.Timestamp):
         if current_timestamp.date() > last_timestamp.date():
             return True
         else:
             return False
-        
+
     def check_if_weekend(self, current_timestamp: pd.Timestamp):
         if current_timestamp.weekday() <= 4: # Mo, Tu, Wd, Th, Fr
             return False
         else:
             return True
-        
-    def check_for_init_phase(self, current_timestamp: pd.Timestamp):
-        init_value = {
-            "stopping_time": current_timestamp.isoformat(),
-            "overall_confidence": None,
-            "timestamp": current_timestamp.isoformat()
-        }
-        if self.init_phase_handler.operator_is_in_init_phase(current_timestamp):
-            logger.debug(self.init_phase_handler.generate_init_msg(current_timestamp, init_value))
-            return self.init_phase_handler.generate_init_msg(current_timestamp, init_value)
 
-        if self.init_phase_handler.init_phase_needs_to_be_reset():
-            logger.debug(self.init_phase_handler.reset_init_phase(init_value))
-            return self.init_phase_handler.reset_init_phase(init_value)
-
-        return False
-    
     def prepare_output_timestamp(self, current_timestamp: pd.Timestamp):
         # Wall times computed in Berlin can fall into the DST gap or the repeated hour.
         current_timestamp = current_timestamp.tz_localize("Europe/Berlin", nonexistent="shift_forward", ambiguous=False).tz_convert("Zulu")
@@ -218,4 +312,4 @@ class Operator(OperatorBase):
 
 from operator_lib.operator_lib import OperatorLib
 if __name__ == "__main__":
-    OperatorLib(Operator(), name="open-window-detection-operator", git_info_file='git_commit')
+    OperatorLib(Operator(), name="automatic-heating-operator", git_info_file='git_commit')
