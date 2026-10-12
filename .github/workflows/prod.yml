@@ -1,7 +1,8 @@
 name: 'PROD build'
 
-# master builds :prod as before plus :vX.Y.Z; a release/vN branch keeps an older major
-# alive and builds only its :vN.x.y. The git tag is pushed after the image, so a failed
+# master builds :vX.Y.Z; a release/vN branch keeps an older major alive and builds only
+# its :vN.x.y. :prod stays on the last build before the port, which pipelines started from
+# it keep running; retag.yml moves it. The git tag is pushed after the image, so a failed
 # build never consumes a version.
 on:
   push:
@@ -45,9 +46,6 @@ jobs:
           {
             echo 'list<<EOF'
             echo "ghcr.io/senergy-platform/automatic_heating:${{ steps.version.outputs.tag }}"
-            if [ "$GITHUB_REF_NAME" = 'master' ]; then
-              echo 'ghcr.io/senergy-platform/automatic_heating:prod'
-            fi
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
       - name: Login to GitHub Container Registry

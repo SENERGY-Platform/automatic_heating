@@ -28,4 +28,4 @@ An input without readable history, such as the output of another operator in a n
 
 ## Versions
 
-Every build on `master` pushes `:vX.Y.Z` and `:prod`; a branch `release/vN` builds only `:vN.x.y`. See `.github/workflows/prod.yml`.
+Every build on `master` pushes `:vX.Y.Z`; a branch `release/vN` builds only `:vN.x.y`. See `.github/workflows/prod.yml`. `:prod` stays on the last build before the port, which older pipelines run; `.github/workflows/retag.yml` points a tag at an existing version or digest.
