@@ -172,6 +172,16 @@ class TestTrainAndInfer(OperatorTestCase):
 
         self.assertEqual([r["stopping_time"] for r in result], ["2026-04-06T04:50:00Z"])
 
+    def test_training_logs_the_number_of_openings(self):
+        op = self.operator()
+        train_logger = mock.Mock()
+        clock.set_fixed(berlin("2026-01-11 23:00:00").to_pydatetime())
+        with training_without_ray(self.history):
+            model = op.train(None, train_logger)
+        openings = len(model.weekday) + len(model.weekend)
+        self.assertGreater(openings, 0)
+        train_logger.log_metrics.assert_called_once_with({"window_openings": openings})
+
 
 class TestNotEnoughData(OperatorTestCase):
     def test_two_openings_give_no_output_and_three_do(self):
@@ -427,6 +437,9 @@ class _LoggerMock:
 
     def trace(self, name):
         return contextlib.nullcontext()
+
+    def log_metrics(self, metrics, step=None):
+        pass
 
 
 class TestLifecycle(OperatorTestCase):

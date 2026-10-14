@@ -196,6 +196,9 @@ class Operator(MLOperator):
             datasets, others, now, self.config.contact_sensor, legacy_imported, RETENTION_NS))
         for note in notes:
             logger.info(note)
+        # Read by the content test to tell a training on real history from one on nothing.
+        if train_logger is not None:
+            train_logger.log_metrics({"window_openings": len(openings_model.weekday) + len(openings_model.weekend)})
         # The live openings are in the model now (or replaced by the history); infer must not count them twice.
         with self._lock:
             left = collections.Counter(consumed)
