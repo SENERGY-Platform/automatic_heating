@@ -5,13 +5,14 @@ Learns when a window is opened, separately for weekdays and weekends, and predic
 ## Input and output
 
 - Input `window_open`: a boolean. With `contact_sensor` true it comes from a contact sensor and is read inverted (true = contact closed = window closed).
+  The input repeats the state with every message; an opening is the change from closed to open, in the history and live. The first message after a start without saved state is no opening.
 - Output per cluster of openings, on the first message of a new day with more than two openings of that day type: `stopping_time` (start of the cluster minus `inertia_buffer`, UTC), `overall_confidence` and `timestamp`.
 
 ## Training
 
 The operator is an `MLOperator` of analytics-operator-lib-python. At start, when no model is registered in MLflow, and once a day it trains on the history of its input (`history_days`), merged with the openings it saw live since the last training. The model is stored in MLflow. The training runs as a Ray task on the cluster (`algo/training.py`); the image starts the operator with `uv run`, so Ray builds the environment of `uv.lock` on the workers. There is no learning phase: with enough openings in the history it predicts from the first day change on.
 
-An input without readable history, such as the output of another operator in a new pipeline, starts cold and predicts once more than two openings of a day type are seen. A pipeline of an earlier version keeps what it learned: its `window_opening_times.pickle` is merged once at the first training.
+An input without readable history, such as the output of another operator in a new pipeline, starts cold and predicts once more than two openings of a day type are seen. A pipeline of an earlier version keeps what it learned: its `window_opening_times.pickle` is merged once at the first training. Earlier versions recorded every message with the window open; at training, such points within five minutes of the one before count as one opening.
 
 ## Configuration
 

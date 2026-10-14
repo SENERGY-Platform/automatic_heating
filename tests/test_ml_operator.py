@@ -65,9 +65,12 @@ class FakePyFuncModel:
 
 
 def history_frame(openings, closings=()):
-    """Rows as the lib's readers return them: naive UTC time, the mapped value."""
+    """Rows as the lib's readers return them: naive UTC time, the mapped value; closed before the first row,
+    since an opening needs a known closed state before it."""
     rows = [(berlin(w).tz_localize(None), True) for w in openings]
     rows += [(berlin(w).tz_localize(None), False) for w in closings]
+    if rows:
+        rows.append((min(t for t, _ in rows) - pd.Timedelta(1, "h"), False))
     return pd.DataFrame(rows, columns=["time", "window_open"]).sort_values("time").reset_index(drop=True)
 
 
@@ -80,6 +83,7 @@ def weekday_and_weekend_openings(first_day: str, last_day: str):
             closings.append(f"{day.date()} 07:3{minute}:00")
         else:
             openings.append(f"{day.date()} 10:00:00")
+            closings.append(f"{day.date()} 10:30:00")
     return openings, closings
 
 
@@ -112,6 +116,14 @@ class OperatorTestCase(unittest.TestCase):
         clock.set_fixed(berlin(now).to_pydatetime())
         with training_without_ray(history, history_error):
             return op.train(model, None)
+
+    def open_at(self, op, model, wall_time):
+        """A closed message a minute before wall_time, then an open one: the input repeats the state with every
+        message, and only the change is an opening."""
+        closed = op.config.contact_sensor  # the raw value of a closed window
+        before = str(pd.Timestamp(wall_time) - pd.Timedelta(1, "min"))
+        self.infer(op, model, before, window_open=closed)
+        return self.infer(op, model, wall_time, window_open=not closed)
 
     def infer(self, op, model, wall_time, window_open=False):
         dt, result, new_model = op.infer(model, {"window_open": window_open}, "s", "d", berlin(wall_time).to_pydatetime())
@@ -157,15 +169,16 @@ class TestTrainAndInfer(OperatorTestCase):
         # With the default contact_sensor, False means open: the closings become the openings.
         op = self.operator()
         model = self.train(op, history=self.history)
-        weekday_closings = [t for t in model.weekday if pd.Timestamp(t, tz="UTC").tz_convert(BERLIN).minute >= 30]
-        self.assertEqual(len(weekday_closings), len(model.weekday))
-        self.assertEqual(model.weekend, [])
+        points = model.weekday + model.weekend
+        self.assertTrue(points)
+        self.assertTrue(all(pd.Timestamp(t, tz="UTC").tz_convert(BERLIN).minute >= 30 for t in points))
 
     def test_wall_time_is_stable_across_the_spring_dst_change(self):
-        openings, _ = weekday_and_weekend_openings("2026-03-09", "2026-04-03")
+        openings, closings = weekday_and_weekend_openings("2026-03-09", "2026-04-03")
         openings = [o.replace("07:01", "07:00").replace("07:02", "07:00") for o in openings]
         op = self.operator(contact_sensor="")
-        model = FakePyFuncModel(self.train(op, history=[FakeDataset(history_frame(openings))], now="2026-04-05 23:00:00"))
+        model = FakePyFuncModel(self.train(op, history=[FakeDataset(history_frame(openings, closings))],
+                                           now="2026-04-05 23:00:00"))
 
         self.infer(op, model, "2026-04-05 23:30:00")
         _, result = self.infer(op, model, "2026-04-06 00:05:00")
@@ -186,11 +199,11 @@ class TestTrainAndInfer(OperatorTestCase):
 class TestNotEnoughData(OperatorTestCase):
     def test_two_openings_give_no_output_and_three_do(self):
         op = self.operator()
-        self.infer(op, None, "2026-01-12 07:00:00", window_open=False)
-        self.infer(op, None, "2026-01-13 07:00:00", window_open=False)
+        self.open_at(op, None, "2026-01-12 07:00:00")
+        self.open_at(op, None, "2026-01-13 07:00:00")
         self.assertEqual(self.infer(op, None, "2026-01-14 00:01:00", window_open=True), (None, None))
 
-        self.infer(op, None, "2026-01-14 07:01:00", window_open=False)
+        self.open_at(op, None, "2026-01-14 07:01:00")
         _, result = self.infer(op, None, "2026-01-15 00:01:00", window_open=True)
         self.assertEqual([r["stopping_time"] for r in result], ["2026-01-15T05:50:00Z"])
 
@@ -204,7 +217,7 @@ class TestColdStart(OperatorTestCase):
 
         wrapped = FakePyFuncModel(model)
         for day in ("12", "13", "14"):
-            self.infer(op, wrapped, f"2026-01-{day} 07:00:00", window_open=False)
+            self.open_at(op, wrapped, f"2026-01-{day} 07:00:00")
         _, result = self.infer(op, wrapped, "2026-01-15 00:01:00", window_open=True)
         self.assertEqual([r["stopping_time"] for r in result], ["2026-01-15T05:50:00Z"])
 
@@ -219,6 +232,39 @@ class TestColdStart(OperatorTestCase):
 
     def test_history_without_the_mapped_column(self):
         self.assert_cold_start_then_live_output(history=[FakeDataset(pd.DataFrame({"time": [pd.Timestamp("2026-01-05")]}))])
+
+
+class TestOpenings(unittest.TestCase):
+    """An opening is the change from closed to open, as the input repeats the state with every message."""
+
+    now = ns("2026-01-11 23:00:00")
+
+    def fit(self, datasets, others=()):
+        model, _ = fit_openings_model(datasets, list(others), self.now, False, True, RETENTION_NS)
+        return model.weekday + model.weekend
+
+    def test_a_state_reported_every_minute_is_one_opening(self):
+        times = pd.date_range("2026-01-05 06:50:00", "2026-01-05 08:00:00", freq="min")
+        values = [not (pd.Timestamp("2026-01-05 07:00:00") <= t < pd.Timestamp("2026-01-05 07:30:00")) for t in times]
+        frame = pd.DataFrame({"time": [berlin(str(t)).tz_localize(None) for t in times], "window_open": values})
+        # contact sensor: False is open
+        model, _ = fit_openings_model([FakeDataset(frame)], [], self.now, True, True, RETENTION_NS)
+        self.assertEqual(model.weekday + model.weekend, [ns("2026-01-05 07:00:00")])
+
+    def test_an_open_first_sample_has_no_known_change(self):
+        frame = pd.DataFrame({"time": [berlin("2026-01-05 07:00:00").tz_localize(None)], "window_open": [True]})
+        self.assertEqual(self.fit([FakeDataset(frame)]), [])
+
+    def test_each_dataset_has_its_own_state(self):
+        first = history_frame(["2026-01-05 07:00:00"], ["2026-01-05 07:30:00"])
+        second = history_frame(["2026-01-05 07:10:00"], ["2026-01-05 07:40:00"])
+        self.assertEqual(self.fit([FakeDataset(first), FakeDataset(second)]),
+                         [ns("2026-01-05 07:00:00"), ns("2026-01-05 07:10:00")])
+
+    def test_points_of_the_earlier_version_count_once_per_opening(self):
+        per_minute = [ns("2026-01-05 07:00:00") + i * 60 * 10**9 for i in range(30)]
+        later = ns("2026-01-05 18:00:00")
+        self.assertEqual(self.fit(None, per_minute + [later]), [ns("2026-01-05 07:00:00"), later])
 
 
 class TestConfig(unittest.TestCase):
@@ -274,7 +320,7 @@ class TestDayChange(OperatorTestCase):
     def test_a_late_message_does_not_start_the_day_again(self):
         op = self.operator()
         for day in ("08", "09", "12"):
-            self.infer(op, None, f"2026-01-{day} 07:00:00", window_open=False)
+            self.open_at(op, None, f"2026-01-{day} 07:00:00")
         self.infer(op, None, "2026-01-12 08:00:00", window_open=False)
         _, result = self.infer(op, None, "2026-01-13 00:01:00", window_open=True)
         self.assertIsNotNone(result)
@@ -324,7 +370,7 @@ class TestMerge(OperatorTestCase):
 
     def test_history_replaces_other_sources_where_it_reaches(self):
         openings = ["2026-01-05 07:00:00", "2026-01-06 07:00:00"]
-        history = [FakeDataset(history_frame(openings, closings=["2025-12-20 12:00:00"]))]
+        history = [FakeDataset(history_frame(openings, closings=["2025-12-20 12:00:00", "2026-01-05 07:30:00"]))]
         before_history = ns("2025-12-15 07:00:00")
         kafka_time_of_history_opening = ns("2026-01-05 07:00:00") + 300 * 10**6
         too_old = ns("2025-11-10 07:00:00")
@@ -384,7 +430,7 @@ class TestState(OperatorTestCase):
     def test_restart_without_stop_keeps_recent_openings_and_the_last_day(self):
         op = self.operator()
         for day in ("12", "13", "14"):
-            self.infer(op, None, f"2026-01-{day} 07:00:00", window_open=False)
+            self.open_at(op, None, f"2026-01-{day} 07:00:00")
 
         restarted = self.operator()
         _, result = self.infer(restarted, None, "2026-01-15 00:01:00", window_open=True)
@@ -407,29 +453,50 @@ class TestState(OperatorTestCase):
 
     def test_training_takes_over_the_recent_openings_late_ones_stay(self):
         op = self.operator()
-        self.infer(op, None, "2026-01-12 07:00:00", window_open=False)
+        self.open_at(op, None, "2026-01-12 07:00:00")
         model = self.train(op, history=[], now="2026-01-13 00:01:00")
         self.assertIn(ns("2026-01-12 07:00:00"), model.weekday)
         self.assertEqual(op.recent, [])
 
         # Arrives after the training although it is older: it must stay until the next training.
-        self.infer(op, FakePyFuncModel(model), "2026-01-12 23:58:00", window_open=False)
-        # With the default contact_sensor, False is an opening.
-        self.infer(op, FakePyFuncModel(model), "2026-01-13 00:05:00", window_open=False)
+        self.open_at(op, FakePyFuncModel(model), "2026-01-12 23:58:00")
+        self.open_at(op, FakePyFuncModel(model), "2026-01-13 00:05:00")
         self.assertEqual(op.recent, [ns("2026-01-12 23:58:00"), ns("2026-01-13 00:05:00")])
 
-    def test_an_opening_is_saved_at_most_once_a_minute(self):
+    def test_an_opening_is_saved_at_once_and_the_repeated_state_adds_none(self):
         op = self.operator()
-        with mock.patch("main.time.monotonic", return_value=1000.0):
-            self.infer(op, None, "2026-01-12 07:00:00", window_open=False)
-            self.infer(op, None, "2026-01-12 07:01:00", window_open=False)
-        with open(os.path.join(self.data_path, STATE_FILE)) as f:
-            self.assertEqual(json.load(f)["recent"], [ns("2026-01-12 07:00:00")])
-        with mock.patch("main.time.monotonic", return_value=1060.0):
-            self.infer(op, None, "2026-01-12 07:02:00", window_open=False)
-        with open(os.path.join(self.data_path, STATE_FILE)) as f:
-            self.assertEqual(len(json.load(f)["recent"]), 3)
 
+        def saved():
+            with open(os.path.join(self.data_path, STATE_FILE)) as f:
+                return json.load(f)
+
+        with mock.patch("main.time.monotonic", return_value=1000.0):
+            self.open_at(op, None, "2026-01-12 07:00:00")
+            self.infer(op, None, "2026-01-12 07:01:00", window_open=False)
+            self.assertEqual(saved()["recent"], [ns("2026-01-12 07:00:00")])
+            self.open_at(op, None, "2026-01-12 07:20:00")
+            self.assertEqual(saved()["recent"], [ns("2026-01-12 07:00:00"), ns("2026-01-12 07:20:00")])
+            self.assertTrue(saved()["window_open"])
+
+    def test_the_first_message_after_a_cold_start_is_no_opening(self):
+        op = self.operator()
+        self.infer(op, None, "2026-01-12 07:00:00", window_open=False)
+        self.infer(op, None, "2026-01-12 07:01:00", window_open=False)
+        self.assertEqual(op.recent, [])
+
+    def test_the_window_state_survives_a_restart(self):
+        op = self.operator()
+        self.infer(op, None, "2026-01-12 06:59:00", window_open=True)
+        restarted = self.operator()
+        self.infer(restarted, None, "2026-01-12 07:00:00", window_open=False)
+        self.assertEqual(restarted.recent, [ns("2026-01-12 07:00:00")])
+
+    def test_a_late_message_is_no_opening(self):
+        op = self.operator()
+        self.infer(op, None, "2026-01-12 07:00:00", window_open=True)
+        self.infer(op, None, "2026-01-12 06:30:00", window_open=False)
+        self.infer(op, None, "2026-01-12 07:01:00", window_open=True)
+        self.assertEqual(op.recent, [])
 
 class _LoggerMock:
     def __init__(self, *args, **kwargs):

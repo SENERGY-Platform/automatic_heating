@@ -93,6 +93,7 @@ class Operator(MLOperator):
         self._lock = threading.Lock()
         self._loaded = False
         self.recent = []  # openings seen live and not yet in a trained model, UTC ns
+        self.window_was_open = None  # state of the last in-order message, None while unknown
         self.last_timestamp = None  # time of the last message, UTC ns
         self.retrain = False
         self.trained_day = None  # Berlin date of the wall clock at the last training
@@ -113,7 +114,7 @@ class Operator(MLOperator):
                 os.makedirs(self.config.data_path, exist_ok=True)
             except OSError as ex:
                 logger.error(f"cannot create {self.config.data_path}: {ex}")
-            self.recent, self.last_timestamp = self._load_state()
+            self.recent, self.last_timestamp, self.window_was_open = self._load_state()
             self._loaded = True
 
     def _load_state(self):
@@ -124,16 +125,19 @@ class Operator(MLOperator):
                     state = json.load(f)
                 recent = [int(t) for t in state["recent"]]
                 last = state["last_timestamp"]
-                return recent, (None if last is None else int(last))
-            except (OSError, ValueError, KeyError, TypeError) as ex:
+                # Absent in the state of earlier versions.
+                was_open = state.get("window_open")
+                return (recent, (None if last is None else int(last)),
+                        was_open if isinstance(was_open, bool) else None)
+            except (OSError, ValueError, KeyError, TypeError, AttributeError) as ex:
                 logger.error(f"ignoring unreadable state in {path}: {ex}")
-                return [], None
+                return [], None, None
         try:
             legacy_last = load(self.config.data_path, LEGACY_LAST_TIMESTAMP_FILE)
         except Exception as ex:
             logger.error(f"ignoring unreadable {LEGACY_LAST_TIMESTAMP_FILE}: {ex}")
             legacy_last = None
-        return [], (None if legacy_last is None else wall_time_to_utc_ns(legacy_last))
+        return [], (None if legacy_last is None else wall_time_to_utc_ns(legacy_last)), None
 
     def _save_state(self):
         # Caller holds the lock. Replacing the file keeps the previous state if writing fails halfway.
@@ -141,7 +145,8 @@ class Operator(MLOperator):
         tmp_path = path + ".tmp"
         try:
             with open(tmp_path, "w") as f:
-                json.dump({"recent": self.recent, "last_timestamp": self.last_timestamp}, f)
+                json.dump({"recent": self.recent, "last_timestamp": self.last_timestamp,
+                           "window_open": self.window_was_open}, f)
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, path)
@@ -229,17 +234,23 @@ class Operator(MLOperator):
 
         openings_model = _unwrap(model)
         with self._lock:
-            if window_open:
+            # A late message must not move the day back, or the next message would start the same day again;
+            # nor does it say whether the window opened now.
+            in_order = self.last_timestamp is None or utc_ns > self.last_timestamp
+            changed = in_order and window_open != self.window_was_open
+            # The input repeats the state with every message; only the change from closed to open is an opening.
+            if changed and window_open and self.window_was_open is False:
                 self.recent.append(utc_ns)
+            if in_order:
+                self.window_was_open = window_open
             new_day = self.last_timestamp is not None and self.check_for_new_day(to_wall_time(self.last_timestamp), current_timestamp)
-            # A late message must not move the day back, or the next message would start the same day again.
-            if self.last_timestamp is None or utc_ns > self.last_timestamp:
+            if in_order:
                 self.last_timestamp = utc_ns
             if new_day:
                 # At most one training per day of the wall clock, so replaying a backlog does not train per replayed day.
                 self.retrain = self.trained_day != to_wall_time(to_utc_ns(clock.now())).date()
                 self.recent = [t for t in self.recent if utc_ns - t <= RETENTION_NS]
-            if new_day or (window_open and (self._saved_at is None
+            if new_day or changed or (window_open and (self._saved_at is None
                                             or time.monotonic() - self._saved_at >= SAVE_INTERVAL_S)):
                 self._save_state()
             recent = list(self.recent)
