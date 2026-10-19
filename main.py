@@ -45,6 +45,10 @@ LEGACY_LAST_TIMESTAMP_FILE = "last_timestamp.pickle"
 
 RETENTION_NS = 60 * 24 * 3600 * 10**9  # 60 days
 SAVE_INTERVAL_S = 60
+# A requested history that cannot be read, as when the Ray cluster has no CPU free, is tried again this
+# often, this far apart, before the day counts as trained on the stored openings alone.
+HISTORY_RETRY_S = 600
+HISTORY_RETRIES = 6
 
 
 class CustomConfig(Config):
@@ -112,6 +116,8 @@ class Operator(MLOperator):
         self.last_timestamp = None  # time of the last message, UTC ns
         self.retrain = False
         self.trained_day = None  # Berlin date of the wall clock at the last training
+        self._retry_at = None  # monotonic time of the next training after an unreadable history
+        self._history_retries = 0
         self._saved_at = None  # monotonic time of the last state save
 
     def stop(self):
@@ -212,7 +218,7 @@ class Operator(MLOperator):
                 others += legacy
                 legacy_imported = True
 
-        openings_model, notes = ray.get(train_openings_model.remote(
+        openings_model, notes, history_failed = ray.get(train_openings_model.remote(
             datasets, others, now, self.config.contact_sensor, legacy_imported, RETENTION_NS))
         for note in notes:
             logger.info(note)
@@ -229,14 +235,25 @@ class Operator(MLOperator):
                 else:
                     remaining.append(t)
             self.recent = remaining
-            self.trained_day = to_wall_time(now).date()
+            if history_failed and self._history_retries < HISTORY_RETRIES:
+                # The day stays untrained, so the next training reads the history again.
+                self._history_retries += 1
+                self._retry_at = time.monotonic() + HISTORY_RETRY_S
+                logger.warning(f"history unreadable, training again in {HISTORY_RETRY_S // 60} minutes "
+                               f"(retry {self._history_retries} of {HISTORY_RETRIES})")
+            else:
+                self._history_retries = 0
+                self._retry_at = None
+                self.trained_day = to_wall_time(now).date()
             self._save_state()
         return openings_model
 
     def need_retraining(self, model) -> bool:
         with self._lock:
-            retrain = self.retrain
+            retrain = self.retrain or (self._retry_at is not None and time.monotonic() >= self._retry_at)
             self.retrain = False
+            if retrain:
+                self._retry_at = None
         return retrain
 
     def infer(self, model, data: typing.Dict[str, typing.Any], selector: str, device_id, timestamp: datetime.datetime):

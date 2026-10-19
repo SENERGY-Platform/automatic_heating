@@ -30,7 +30,7 @@ import pandas as pd
 from operator_lib.util import clock
 
 import main
-from main import Operator, CustomConfig, STATE_FILE, RETENTION_NS
+from main import Operator, CustomConfig, STATE_FILE, RETENTION_NS, HISTORY_RETRY_S, HISTORY_RETRIES
 from algo.model import OpeningsModel, to_utc_ns, wall_time_to_utc_ns
 from algo.training import fit_openings_model
 
@@ -52,6 +52,13 @@ class FakeDataset:
 
     def to_pandas(self):
         return self.frame.copy()
+
+
+class UnreadableDataset:
+    """A history whose read fails, as when Ray finds no CPU for it."""
+
+    def to_pandas(self):
+        raise RuntimeError("Failed to get allocated resources for data-dataset_407_0 after 10 consecutive failures.")
 
 
 class FakePyFuncModel:
@@ -240,7 +247,7 @@ class TestOpenings(unittest.TestCase):
     now = ns("2026-01-11 23:00:00")
 
     def fit(self, datasets, others=()):
-        model, _ = fit_openings_model(datasets, list(others), self.now, False, True, RETENTION_NS)
+        model, _, _ = fit_openings_model(datasets, list(others), self.now, False, True, RETENTION_NS)
         return model.weekday + model.weekend
 
     def test_a_state_reported_every_minute_is_one_opening(self):
@@ -248,7 +255,7 @@ class TestOpenings(unittest.TestCase):
         values = [not (pd.Timestamp("2026-01-05 07:00:00") <= t < pd.Timestamp("2026-01-05 07:30:00")) for t in times]
         frame = pd.DataFrame({"time": [berlin(str(t)).tz_localize(None) for t in times], "window_open": values})
         # contact sensor: False is open
-        model, _ = fit_openings_model([FakeDataset(frame)], [], self.now, True, True, RETENTION_NS)
+        model, _, _ = fit_openings_model([FakeDataset(frame)], [], self.now, True, True, RETENTION_NS)
         self.assertEqual(model.weekday + model.weekend, [ns("2026-01-05 07:00:00")])
 
     def test_an_open_first_sample_has_no_known_change(self):
@@ -338,6 +345,53 @@ class TestDayChange(OperatorTestCase):
         clock.set_fixed(berlin("2026-02-02 00:01:00").to_pydatetime())
         self.infer(op, None, "2026-01-20 07:00:00", window_open=True)
         self.assertTrue(op.need_retraining(None))
+
+
+class TestHistoryRetry(OperatorTestCase):
+    def train_at(self, op, monotonic, **history):
+        with mock.patch("main.time.monotonic", return_value=monotonic):
+            return self.train(op, **history)
+
+    def needs_retraining_at(self, op, monotonic):
+        with mock.patch("main.time.monotonic", return_value=monotonic):
+            return op.need_retraining(None)
+
+    def test_an_unreadable_history_is_read_again_after_a_pause(self):
+        op = self.operator()
+        self.train_at(op, 1000.0, history=[UnreadableDataset()])
+
+        self.assertIsNone(op.trained_day)
+        self.assertFalse(self.needs_retraining_at(op, 1000.0 + HISTORY_RETRY_S - 1))
+        self.assertTrue(self.needs_retraining_at(op, 1000.0 + HISTORY_RETRY_S))
+        self.assertFalse(self.needs_retraining_at(op, 1000.0 + 2 * HISTORY_RETRY_S))
+
+    def test_a_read_history_trains_the_day(self):
+        op = self.operator()
+        self.train_at(op, 1000.0, history=[UnreadableDataset()])
+        openings, closings = weekday_and_weekend_openings("2025-12-15", "2026-01-11")
+        model = self.train_at(op, 1000.0 + HISTORY_RETRY_S, history=[FakeDataset(history_frame(openings, closings))])
+
+        self.assertTrue(model.weekday)
+        self.assertIsNotNone(op.trained_day)
+        self.assertFalse(self.needs_retraining_at(op, 1000.0 + 10 * HISTORY_RETRY_S))
+
+    def test_the_day_counts_as_trained_after_the_last_retry(self):
+        op = self.operator()
+        for attempt in range(HISTORY_RETRIES):
+            self.train_at(op, 1000.0 * attempt, history=[UnreadableDataset()])
+            self.assertIsNone(op.trained_day, attempt)
+        self.train_at(op, 1000.0 * HISTORY_RETRIES, history=[UnreadableDataset()])
+
+        self.assertIsNotNone(op.trained_day)
+        self.assertFalse(self.needs_retraining_at(op, 1000.0 * HISTORY_RETRIES + 10 * HISTORY_RETRY_S))
+
+    def test_a_history_that_cannot_be_requested_is_not_retried(self):
+        # A missing deployment configuration does not go away by waiting.
+        op = self.operator()
+        self.train_at(op, 1000.0, history_error=RuntimeError("no deployment configuration"))
+
+        self.assertIsNotNone(op.trained_day)
+        self.assertFalse(self.needs_retraining_at(op, 1000.0 + 10 * HISTORY_RETRY_S))
 
 
 class TestMerge(OperatorTestCase):
