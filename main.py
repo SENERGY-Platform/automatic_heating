@@ -77,6 +77,9 @@ class CustomConfig(Config):
         self.inertia_buffer = int(self.inertia_buffer)
         self.confidence_days = int(self.confidence_days)
         self.history_days = 60 if str(self.history_days).strip() == "" else float(self.history_days)
+        # A designer node hands over a config value it never set as an empty string.
+        if not str(self.data_path or "").strip():
+            self.data_path = "/opt/data"
         # Read as before the port: any non-empty string, "False" included, switches the inversion on.
         self.contact_sensor = bool(self.contact_sensor)
 

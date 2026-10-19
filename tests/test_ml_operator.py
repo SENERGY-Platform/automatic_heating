@@ -302,6 +302,12 @@ class TestConfig(unittest.TestCase):
                           config.confidence_days, config.history_days, config.data_path),
                          (600, 3600, 10, 7, 60, "/opt/data"))
 
+    def test_an_empty_data_path_falls_back_to_the_default(self):
+        for value in ("", " "):
+            with self.subTest(value=value):
+                self.assertEqual(CustomConfig({"data_path": value}).data_path, "/opt/data")
+        self.assertEqual(CustomConfig({"data_path": "/tmp/x"}).data_path, "/tmp/x")
+
     def test_unparsable_numbers_raise_as_before_the_port(self):
         for values in ({"inertia_buffer": "ten"}, {"inertia_buffer": ""}, {"confidence_days": "x"},
                        {"history_days": "x"}):
