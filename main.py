@@ -21,7 +21,7 @@ import typing
 import dotenv
 dotenv.load_dotenv()
 
-from operator_lib.util import MLOperator, Config, logger
+from operator_lib.util import MLOperator, Config, Inputs, Outputs, logger
 from operator_lib.util import clock
 from operator_lib.util.helpers import provide_historic_data
 from operator_lib.util.persistence import load
@@ -48,7 +48,10 @@ SAVE_INTERVAL_S = 60
 
 
 class CustomConfig(Config):
-    data_path = "/opt/data"
+    # Redeclared so the manifest lists it, with the library's default.
+    logger_level: str = "warning"
+
+    data_path: str = "/opt/data"
 
     high_confidence_boundary: int = 600 # in seconds, corresponds to 10 minutes
     low_confidence_boundary: int = 3600 # in seconds, corresponds to 1 hour
@@ -85,8 +88,20 @@ def _unwrap(model) -> typing.Optional[OpeningsModel]:
     return model
 
 
+class OperatorInputs(Inputs):
+    window_open: bool
+
+
+class OperatorOutputs(Outputs):
+    stopping_time: str
+    overall_confidence: str
+    timestamp: str
+
+
 class Operator(MLOperator):
     configType = CustomConfig
+    inputs = OperatorInputs
+    outputs = OperatorOutputs
 
     def __init__(self):
         # stop() runs on the watchdog thread while infer() may be running.
