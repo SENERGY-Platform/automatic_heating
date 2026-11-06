@@ -229,6 +229,25 @@ class TestNotEnoughData(OperatorTestCase):
         self.assertEqual([r["stopping_time"] for r in result], ["2026-01-15T05:50:00Z"])
 
 
+class TestOutliers(OperatorTestCase):
+    """An opening without another one nearby belongs to no cluster and gets no output of its own."""
+
+    def test_an_outlier_is_left_out(self):
+        op = self.operator()
+        for day in ("12", "13", "14"):
+            self.open_at(op, None, f"2026-01-{day} 07:00:00")
+        self.open_at(op, None, "2026-01-14 13:00:00")
+        _, result = self.infer(op, None, "2026-01-15 00:01:00", window_open=True)
+        self.assertEqual([r["stopping_time"] for r in result], ["2026-01-15T05:50:00Z"])
+
+    def test_only_outliers_give_no_output(self):
+        op = self.operator()
+        for wall_time in ("2026-01-12 07:00:00", "2026-01-13 12:00:00", "2026-01-14 18:00:00"):
+            self.open_at(op, None, wall_time)
+        _, result = self.infer(op, None, "2026-01-15 00:01:00", window_open=True)
+        self.assertFalse(result)
+
+
 class TestColdStart(OperatorTestCase):
     def assert_cold_start_then_live_output(self, **history):
         op = self.operator()

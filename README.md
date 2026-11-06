@@ -6,7 +6,7 @@ Learns when a window is opened, separately for weekdays and weekends, and predic
 
 - Input `window_open`: a boolean. With `contact_sensor` true it comes from a contact sensor and is read inverted (true = contact closed = window closed).
   The input repeats the state with every message; an opening is the change from closed to open, in the history and live. The first message after a start without saved state is no opening.
-- Output per cluster of openings, on the first message of a new day with more than two openings of that day type: `stopping_time` (start of the cluster minus `inertia_buffer`, UTC), `overall_confidence` and `timestamp`.
+- Output per cluster of openings, on the first message of a new day with more than two openings of that day type: `stopping_time` (start of the cluster minus `inertia_buffer`, UTC), `overall_confidence` and `timestamp`. An opening without another one nearby belongs to no cluster and gets no output.
 
 ## Training
 

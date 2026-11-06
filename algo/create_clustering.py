@@ -31,6 +31,9 @@ def compute_clustering(window_opening_times: list):
     clusters = {}
     indices = {}
     for c in np.unique(clustering.labels_):
+        if c == -1:
+            # DBSCAN's noise: openings without a neighbour, which form no cluster.
+            continue
         ix = np.where(clustering.labels_ == c)
         indices[c] = ix[0]
         clusters[c] = [window_opening_times[i] for i in ix[0]]
