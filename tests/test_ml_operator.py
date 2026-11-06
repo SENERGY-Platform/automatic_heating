@@ -193,6 +193,19 @@ class TestTrainAndInfer(OperatorTestCase):
 
         self.assertEqual([r["stopping_time"] for r in result], ["2026-04-06T04:50:00Z"])
 
+    def test_confidence_counts_the_configured_number_of_days(self):
+        # Each of the last 14 weekdays has an opening in the cluster, so up to 14 days the confidence is 1.
+        for days in (3, 14):
+            with self.subTest(confidence_days=days):
+                op = self.operator(data_path=os.path.join(self.data_path, str(days)), contact_sensor="",
+                                   confidence_days=str(days))
+                model = FakePyFuncModel(self.train(op, history=self.history))
+
+                self.infer(op, model, "2026-01-11 23:30:00")
+                _, result = self.infer(op, model, "2026-01-12 00:05:00")
+
+                self.assertEqual([r["overall_confidence"] for r in result], ["1.0"])
+
     def test_training_logs_the_number_of_openings(self):
         op = self.operator()
         train_logger = mock.Mock()

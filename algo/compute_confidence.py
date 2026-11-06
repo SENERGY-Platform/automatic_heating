@@ -46,7 +46,7 @@ def check_for_times_during_last_x_days(current_timestamp, considered_timestamps:
     return nr_days_in_cluster
 
 def compute_confidence_by_daily_apperance(current_timestamp, considered_timestamps: list, pair_of_boundaries: tuple, confidence_days=7):
-    nr_days_in_cluster = check_for_times_during_last_x_days(current_timestamp, considered_timestamps, pair_of_boundaries, confidence_days=7)
+    nr_days_in_cluster = check_for_times_during_last_x_days(current_timestamp, considered_timestamps, pair_of_boundaries, confidence_days=confidence_days)
     return nr_days_in_cluster/confidence_days
 
 def check_if_weekend(current_timestamp: pd.Timestamp):
