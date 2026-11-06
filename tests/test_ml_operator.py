@@ -19,6 +19,7 @@ import contextlib
 import datetime
 import json
 import os
+import pathlib
 import pickle
 import tempfile
 import unittest
@@ -268,6 +269,16 @@ class TestOpenings(unittest.TestCase):
         self.assertEqual(self.fit([FakeDataset(first), FakeDataset(second)]),
                          [ns("2026-01-05 07:00:00"), ns("2026-01-05 07:10:00")])
 
+    def test_each_device_of_an_input_has_its_own_state(self):
+        # From operator lib v1.11.0 on, an input with several devices is one dataset with a column device_id.
+        times = pd.date_range("2026-01-05 06:00:00", "2026-01-05 08:00:00", freq="5min")
+        closed = pd.DataFrame({"time": times, "window_open": False, "device_id": "a"})
+        opening = pd.DataFrame({"time": times + pd.Timedelta(1, "s"), "device_id": "b",
+                                "window_open": times >= pd.Timestamp("2026-01-05 07:00:00")})
+        frame = pd.concat([closed, opening], ignore_index=True)
+        frame["time"] = [berlin(str(t)).tz_localize(None) for t in frame["time"]]
+        self.assertEqual(self.fit([FakeDataset(frame)]), [ns("2026-01-05 07:00:01")])
+
     def test_points_of_the_earlier_version_count_once_per_opening(self):
         per_minute = [ns("2026-01-05 07:00:00") + i * 60 * 10**9 for i in range(30)]
         later = ns("2026-01-05 18:00:00")
@@ -474,7 +485,8 @@ class TestModelSerialisation(OperatorTestCase):
                                             trained_until=ns("2026-01-08 00:00:00"))
         previous_uri = mlflow.get_tracking_uri()
         self.addCleanup(mlflow.set_tracking_uri, previous_uri)
-        mlflow.set_tracking_uri("file://" + os.path.join(self.data_path, "mlruns"))
+        # as_uri, because "file://" and a Windows path are no valid URI.
+        mlflow.set_tracking_uri(pathlib.Path(self.data_path, "mlruns").as_uri())
         with mlflow.start_run():
             info = mlflow.pyfunc.log_model(artifact_path="m", python_model=model)
         loaded = mlflow.pyfunc.load_model(info.model_uri)

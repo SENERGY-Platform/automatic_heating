@@ -46,6 +46,13 @@ def _rising_edges(frame, contact_sensor: bool) -> typing.List[int]:
     return openings
 
 
+def _per_device(frame) -> typing.List:
+    """The rows of each device; an input with several devices comes as one frame with a column device_id."""
+    if "device_id" not in frame.columns:
+        return [frame]
+    return [part for _, part in frame.groupby("device_id", sort=False, dropna=False)]
+
+
 def first_of_runs(openings: typing.Iterable[int]) -> typing.List[int]:
     """One point per opening: a point within SAME_OPENING_NS after the previous one is dropped."""
     result = []
@@ -69,14 +76,15 @@ def _read_history(datasets, contact_sensor: bool, notes: typing.List[str]):
     except Exception as ex:
         notes.append(f"no history available, training on stored openings only: {type(ex).__name__}: {ex}")
         return None, True
-    frames = [f[["time", "window_open"]].dropna(subset=["time", "window_open"])
+    frames = [f[["time", "window_open"] + (["device_id"] if "device_id" in f.columns else [])]
+              .dropna(subset=["time", "window_open"])
               for f in frames if "time" in f.columns and "window_open" in f.columns]
     frames = [f for f in frames if not f.empty]
     if not frames:
         notes.append("history is empty, training on stored openings only")
         return None, False
-    # Per dataset, so the samples of one input do not interleave with those of another.
-    openings = [t for f in frames for t in _rising_edges(f, contact_sensor)]
+    # Per dataset and device, so the samples of one window do not interleave with those of another.
+    openings = [t for f in frames for part in _per_device(f) for t in _rising_edges(part, contact_sensor)]
     return (openings, min(to_utc_ns(t) for f in frames for t in f["time"])), False
 
 
