@@ -77,6 +77,12 @@ class CustomConfig(Config):
         self.inertia_buffer = int(self.inertia_buffer)
         self.confidence_days = int(self.confidence_days)
         self.history_days = 60 if str(self.history_days).strip() == "" else float(self.history_days)
+        # Otherwise the confidence divides by zero, or turns around, at the first prediction.
+        if self.confidence_days < 1:
+            raise ValueError(f"confidence_days must be at least 1, got {self.confidence_days}")
+        if self.low_confidence_boundary <= self.high_confidence_boundary:
+            raise ValueError(f"low_confidence_boundary must be greater than high_confidence_boundary, "
+                             f"got {self.low_confidence_boundary} and {self.high_confidence_boundary}")
         # A designer node hands over a config value it never set as an empty string.
         if not str(self.data_path or "").strip():
             self.data_path = "/opt/data"

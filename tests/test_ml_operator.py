@@ -358,6 +358,16 @@ class TestConfig(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     CustomConfig(values)
 
+    def test_values_that_break_the_confidence_raise(self):
+        for values in ({"confidence_days": "0"}, {"confidence_days": "-1"},
+                       {"high_confidence_boundary": "3600"},
+                       {"high_confidence_boundary": "900", "low_confidence_boundary": "600"}):
+            with self.subTest(values=values):
+                with self.assertRaises(ValueError):
+                    CustomConfig(values)
+        config = CustomConfig({"confidence_days": "1", "high_confidence_boundary": "0", "low_confidence_boundary": "1"})
+        self.assertEqual((config.confidence_days, config.high_confidence_boundary, config.low_confidence_boundary), (1, 0, 1))
+
 
 class TestDayChange(OperatorTestCase):
     def test_retrain_is_flagged_once_per_day_change(self):

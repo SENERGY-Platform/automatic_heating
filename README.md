@@ -25,7 +25,7 @@ An input without readable history, such as the output of another operator in a n
 | `contact_sensor` | true | input comes from a contact sensor; any non-empty value switches it on, only an empty value off |
 | `history_days` | 60 | days of history read at each training |
 
-`init_phase_length` and `init_phase_level` of earlier versions are ignored. The other values are read as before; a value that is no number stops the operator at start.
+`init_phase_length` and `init_phase_level` of earlier versions are ignored. The other values are read as before; a value that is no number stops the operator at start, and so do a `confidence_days` below 1 and a `low_confidence_boundary` that is not greater than `high_confidence_boundary`.
 
 ## Versions
 
