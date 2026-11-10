@@ -297,6 +297,10 @@ class Operator(MLOperator):
 
         if not new_day:
             return None, None, None
+        # A new pipeline replays its backlog, one day change after the other within moments. Only the prediction
+        # for today is of use, and the consumer takes one message at a time and drops what arrives meanwhile.
+        if current_timestamp.date() < to_wall_time(to_utc_ns(clock.now())).date():
+            return None, None, None
 
         weekend = self.check_if_weekend(current_timestamp)
         considered = {t for t in recent if self.check_if_weekend(to_wall_time(t)) == weekend}

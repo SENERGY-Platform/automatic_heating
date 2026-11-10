@@ -134,7 +134,17 @@ class OperatorTestCase(unittest.TestCase):
         return self.infer(op, model, wall_time, window_open=not closed)
 
     def infer(self, op, model, wall_time, window_open=False):
-        dt, result, new_model = op.infer(model, {"window_open": window_open}, "s", "d", berlin(wall_time).to_pydatetime())
+        at = berlin(wall_time).to_pydatetime()
+        # Unless the test fixed the clock, the message is live: it arrives at its own time, which is also the
+        # "today" of the retraining flag and of the output.
+        live = clock.fixed() is None
+        if live:
+            clock.set_fixed(at)
+        try:
+            dt, result, new_model = op.infer(model, {"window_open": window_open}, "s", "d", at)
+        finally:
+            if live:
+                clock.set_fixed(None)
         self.assertIsNone(new_model)
         return dt, result
 
@@ -419,6 +429,26 @@ class TestDayChange(OperatorTestCase):
         clock.set_fixed(berlin("2026-02-02 00:01:00").to_pydatetime())
         self.infer(op, None, "2026-01-20 07:00:00", window_open=True)
         self.assertTrue(op.need_retraining(None))
+
+    def test_a_replayed_backlog_predicts_only_today_from_all_it_read(self):
+        op = self.operator()
+        clock.set_fixed(berlin("2026-01-15 09:00:00").to_pydatetime())
+        closed = op.config.contact_sensor  # the raw value of a closed window
+        self.open_at(op, None, "2026-01-12 07:00:00")
+        for day in ("13", "14"):
+            # the day change of a day already past
+            self.assertEqual(self.infer(op, None, f"2026-01-{day} 00:01:00", window_open=closed), (None, None), day)
+            self.open_at(op, None, f"2026-01-{day} 07:00:00")
+        _, result = self.infer(op, None, "2026-01-15 00:01:00", window_open=closed)
+        self.assertEqual([p["stopping_time"] for p in self.predictions(result)], ["2026-01-15T05:50:00Z"])
+
+    def test_a_day_change_that_arrives_late_on_the_same_day_predicts(self):
+        op = self.operator()
+        for day in ("12", "13", "14"):
+            self.open_at(op, None, f"2026-01-{day} 07:00:00")
+        clock.set_fixed(berlin("2026-01-15 03:00:00").to_pydatetime())
+        _, result = self.infer(op, None, "2026-01-15 00:00:30", window_open=True)
+        self.assertEqual([p["stopping_time"] for p in self.predictions(result)], ["2026-01-15T05:50:00Z"])
 
 
 class TestHistoryRetry(OperatorTestCase):

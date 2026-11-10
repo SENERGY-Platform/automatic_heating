@@ -7,6 +7,7 @@ Learns when a window is opened, separately for weekdays and weekends, and predic
 - Input `window_open`: a boolean. With `contact_sensor` true it comes from a contact sensor and is read inverted (true = contact closed = window closed).
   The input repeats the state with every message; an opening is the change from closed to open, in the history and live. The first message after a start without saved state is no opening.
 - Output `predictions`, one message on the first message of each new day: a JSON list of `stopping_time` (start of a cluster of openings minus `inertia_buffer`, UTC) and `overall_confidence`, one entry per cluster, sorted by `stopping_time`. The list is empty when there are no more than two openings of that day type or no cluster. An opening without another one nearby belongs to no cluster.
+  A day change of a day already past by the wall clock gives no output: a new pipeline that replays its backlog learns from all of it and predicts only today.
 
 ## Training
 
