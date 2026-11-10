@@ -106,9 +106,8 @@ class OperatorInputs(Inputs):
 
 
 class OperatorOutputs(Outputs):
-    stopping_time: str
-    overall_confidence: str
-    timestamp: str
+    # JSON list of {"stopping_time", "overall_confidence"}; operator-lib knows no list ports.
+    predictions: str
 
 
 class Operator(MLOperator):
@@ -306,10 +305,8 @@ class Operator(MLOperator):
         considered_timestamps = [to_wall_time(t) for t in sorted(considered) if utc_ns - t <= RETENTION_NS]
 
         if len(considered_timestamps) <= 2:
-            logger.debug({"stopping_time": "Not enough data!",
-                          "overall_confidence": str(0),
-                          "timestamp": self.prepare_output_timestamp(current_timestamp)})
-            return None, None, None
+            logger.debug(f"{current_timestamp}: not enough data, no predictions")
+            return None, {"predictions": json.dumps([])}, None
 
         inertia_buffer = pd.Timedelta(self.config.inertia_buffer, "min")
         clusters_boundaries, indices = compute_clusters_boundaries(considered_timestamps)
@@ -323,11 +320,12 @@ class Operator(MLOperator):
             overall_confidence = confidence_by_spreading * confidence_by_daily_appearance
 
             confidence_list.append({"stopping_time": self.prepare_output_timestamp(pd.Timestamp.combine(current_day, pair_of_boundaries[0]) - inertia_buffer),
-                                    "overall_confidence": str(overall_confidence),
-                                    "timestamp": self.prepare_output_timestamp(current_timestamp)})
+                                    "overall_confidence": float(overall_confidence)})
+        # One message per day: the consumer correlates only the first of a burst. The Zulu strings sort by time.
+        confidence_list.sort(key=lambda p: p["stopping_time"])
         logger.debug(f"Results for next day: {confidence_list}")
         # No output time of its own, as before the port: the producer stamps it.
-        return None, confidence_list, None
+        return None, {"predictions": json.dumps(confidence_list)}, None
 
     def check_for_new_day(self, last_timestamp: pd.Timestamp, current_timestamp: pd.Timestamp):
         if current_timestamp.date() > last_timestamp.date():

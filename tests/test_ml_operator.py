@@ -138,6 +138,10 @@ class OperatorTestCase(unittest.TestCase):
         self.assertIsNone(new_model)
         return dt, result
 
+    def predictions(self, result):
+        self.assertEqual(list(result), ["predictions"])
+        return json.loads(result["predictions"])
+
 
 class TestTrainAndInfer(OperatorTestCase):
     def setUp(self):
@@ -154,10 +158,9 @@ class TestTrainAndInfer(OperatorTestCase):
 
         # No output time of its own, as before the port.
         self.assertIsNone(dt)
-        self.assertEqual(result, [{
+        self.assertEqual(self.predictions(result), [{
             "stopping_time": "2026-01-12T05:50:00Z",
-            "overall_confidence": "1.0",
-            "timestamp": "2026-01-11T23:05:00Z",
+            "overall_confidence": 1.0,
         }])
 
     def test_saturday_gets_the_weekend_cluster(self):
@@ -167,10 +170,9 @@ class TestTrainAndInfer(OperatorTestCase):
         self.infer(op, model, "2026-01-16 23:59:00")
         dt, result = self.infer(op, model, "2026-01-17 00:01:00")
 
-        self.assertEqual(result, [{
+        self.assertEqual(self.predictions(result), [{
             "stopping_time": "2026-01-17T08:50:00Z",
-            "overall_confidence": "1.0",
-            "timestamp": "2026-01-16T23:01:00Z",
+            "overall_confidence": 1.0,
         }])
 
     def test_contact_sensor_inverts_the_history(self):
@@ -191,7 +193,7 @@ class TestTrainAndInfer(OperatorTestCase):
         self.infer(op, model, "2026-04-05 23:30:00")
         _, result = self.infer(op, model, "2026-04-06 00:05:00")
 
-        self.assertEqual([r["stopping_time"] for r in result], ["2026-04-06T04:50:00Z"])
+        self.assertEqual([r["stopping_time"] for r in self.predictions(result)], ["2026-04-06T04:50:00Z"])
 
     def test_confidence_counts_the_configured_number_of_days(self):
         # Each of the last 14 weekdays has an opening in the cluster, so up to 14 days the confidence is 1.
@@ -204,7 +206,7 @@ class TestTrainAndInfer(OperatorTestCase):
                 self.infer(op, model, "2026-01-11 23:30:00")
                 _, result = self.infer(op, model, "2026-01-12 00:05:00")
 
-                self.assertEqual([r["overall_confidence"] for r in result], ["1.0"])
+                self.assertEqual([r["overall_confidence"] for r in self.predictions(result)], [1.0])
 
     def test_training_logs_the_number_of_openings(self):
         op = self.operator()
@@ -222,11 +224,12 @@ class TestNotEnoughData(OperatorTestCase):
         op = self.operator()
         self.open_at(op, None, "2026-01-12 07:00:00")
         self.open_at(op, None, "2026-01-13 07:00:00")
-        self.assertEqual(self.infer(op, None, "2026-01-14 00:01:00", window_open=True), (None, None))
+        _, result = self.infer(op, None, "2026-01-14 00:01:00", window_open=True)
+        self.assertEqual(result, {"predictions": "[]"})
 
         self.open_at(op, None, "2026-01-14 07:01:00")
         _, result = self.infer(op, None, "2026-01-15 00:01:00", window_open=True)
-        self.assertEqual([r["stopping_time"] for r in result], ["2026-01-15T05:50:00Z"])
+        self.assertEqual([r["stopping_time"] for r in self.predictions(result)], ["2026-01-15T05:50:00Z"])
 
 
 class TestOutliers(OperatorTestCase):
@@ -238,14 +241,26 @@ class TestOutliers(OperatorTestCase):
             self.open_at(op, None, f"2026-01-{day} 07:00:00")
         self.open_at(op, None, "2026-01-14 13:00:00")
         _, result = self.infer(op, None, "2026-01-15 00:01:00", window_open=True)
-        self.assertEqual([r["stopping_time"] for r in result], ["2026-01-15T05:50:00Z"])
+        self.assertEqual([r["stopping_time"] for r in self.predictions(result)], ["2026-01-15T05:50:00Z"])
 
-    def test_only_outliers_give_no_output(self):
+    def test_only_outliers_give_an_empty_list(self):
         op = self.operator()
         for wall_time in ("2026-01-12 07:00:00", "2026-01-13 12:00:00", "2026-01-14 18:00:00"):
             self.open_at(op, None, wall_time)
         _, result = self.infer(op, None, "2026-01-15 00:01:00", window_open=True)
-        self.assertFalse(result)
+        self.assertEqual(result, {"predictions": "[]"})
+
+    def test_two_clusters_of_a_day_give_one_result_sorted_by_stopping_time(self):
+        op = self.operator()
+        for day in ("12", "13", "14"):
+            self.open_at(op, None, f"2026-01-{day} 07:00:00")
+            self.open_at(op, None, f"2026-01-{day} 19:00:00")
+        _, result = self.infer(op, None, "2026-01-15 00:01:00", window_open=True)
+        predictions = self.predictions(result)
+        self.assertEqual([p["stopping_time"] for p in predictions], ["2026-01-15T05:50:00Z", "2026-01-15T17:50:00Z"])
+        for p in predictions:
+            self.assertEqual(set(p), {"stopping_time", "overall_confidence"})
+            self.assertIsInstance(p["overall_confidence"], float)
 
 
 class TestColdStart(OperatorTestCase):
@@ -259,7 +274,7 @@ class TestColdStart(OperatorTestCase):
         for day in ("12", "13", "14"):
             self.open_at(op, wrapped, f"2026-01-{day} 07:00:00")
         _, result = self.infer(op, wrapped, "2026-01-15 00:01:00", window_open=True)
-        self.assertEqual([r["stopping_time"] for r in result], ["2026-01-15T05:50:00Z"])
+        self.assertEqual([r["stopping_time"] for r in self.predictions(result)], ["2026-01-15T05:50:00Z"])
 
     def test_failing_history_read(self):
         self.assert_cold_start_then_live_output(history_error=RuntimeError("no deployment configuration"))
@@ -548,7 +563,7 @@ class TestState(OperatorTestCase):
 
         restarted = self.operator()
         _, result = self.infer(restarted, None, "2026-01-15 00:01:00", window_open=True)
-        self.assertEqual([r["stopping_time"] for r in result], ["2026-01-15T05:50:00Z"])
+        self.assertEqual([r["stopping_time"] for r in self.predictions(result)], ["2026-01-15T05:50:00Z"])
 
     def test_stop_saves_the_last_timestamp(self):
         op = self.operator()
@@ -666,10 +681,9 @@ class TestLifecycle(OperatorTestCase):
             dt, result = op.run({"window_open": False}, "s", "d", ts)
 
         self.assertIsNone(dt)
-        self.assertEqual(result, [{
+        self.assertEqual(json.loads(result["predictions"]), [{
             "stopping_time": "2026-01-12T05:50:00Z",
-            "overall_confidence": "1.0",
-            "timestamp": "2026-01-11T23:05:00Z",
+            "overall_confidence": 1.0,
         }])
         self.assertEqual(len(registry), 2)
 
